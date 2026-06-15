@@ -47,6 +47,16 @@ The following tools are provided for your convenience. **There is no requirement
 - **[checker](checker/README.md)** — Validates instance and solution file formats, computes objective function values, and checks solution feasibility
 - **[networktools](https://gitlab.com/Orange-OpenSource/network-optimization-tools/networktools)** — C++20 network/graph optimization library
 
+## Challenge Results
+
+The status/results of each phase of the EURO/ROADEF 2026 Challenge can be found in the following table
+
+| Phase | Status/Results | Date |
+| :--- | :--- | :--- |
+| **Sprint** | [Results available here](sprint_results) | June, 15th 2026 |
+| **Qualification** | To be released | October 5, 2026 |
+| **Final** | To be released | During ROADEF 2027 |
+
 ## Support
 
 If you encounter any problems with the datasets, tools, or documentation then browse existing [issues](https://gitlab.com/Orange-OpenSource/network-optimization-tools/challenge-roadef-2026/-/issues) for answers first. Otherwise, report the issue [here](https://gitlab.com/Orange-OpenSource/network-optimization-tools/challenge-roadef-2026/-/issues/new?description_template=bug_report).
