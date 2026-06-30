@@ -136,6 +136,31 @@ inline bool validateId(const Graph& g, Item item, const char* value_name) noexce
   return validateRange(g.id(item), 0, nt::graphs::countItems< Graph, Item >(g), value_name);
 }
 
+namespace details {
+  inline void computeSrPathMask(const SrPathBit& srpathbit, nt::BitArray& mask) {
+    assert(srpathbit._g);
+    const Digraph& g = *srpathbit._g;
+
+    const int n = g.nodeNum();
+    mask.removeAll();
+    mask.extendByBits(n * n);
+
+    for (int i = 0; i < srpathbit.segmentNum() - 1; ++i) {
+      const Node from = srpathbit[i].toNode();
+      const Node to = srpathbit[i + 1].toNode();
+      mask.setOneAt(g.id(from) * n + g.id(to));
+    }
+  }
+
+  inline int distEx(const SrPathBit& srpathbit_a, const SrPathBit& srpathbit_b, nt::BitArray& mask_a, nt::BitArray& mask_b) {
+    if (srpathbit_a.empty()) return srpathbit_b.segmentNum();
+    if (srpathbit_b.empty()) return srpathbit_a.segmentNum();
+    computeSrPathMask(srpathbit_a, mask_a);
+    computeSrPathMask(srpathbit_b, mask_b);
+    return mask_a.hamming(mask_b);
+  }
+}   // namespace details
+
 /**
  * @brief Computes the distance between two SrPathBit objects.
  *
@@ -149,7 +174,9 @@ inline bool validateId(const Graph& g, Item item, const char* value_name) noexce
 inline int dist(const SrPathBit& srpathbit_a, const SrPathBit& srpathbit_b) {
   if (srpathbit_a.empty()) return srpathbit_b.segmentNum();
   if (srpathbit_b.empty()) return srpathbit_a.segmentNum();
-  return srpathbit_a._mask.hamming(srpathbit_b._mask);
+  nt::BitArray mask_a;
+  nt::BitArray mask_b;
+  return details::distEx(srpathbit_a, srpathbit_b, mask_a, mask_b);
 }
 
 /**
@@ -165,10 +192,15 @@ inline int dist(const SrPathBit& srpathbit_a, const SrPathBit& srpathbit_b) {
 inline bool checkBudgetConstraintAt(const RoutingScheme& rs, const Instance& inst, const Scenario& scenario, int t, int& i_cost) {
   i_cost = 0;
   if (t < 1) return true;
-  const int i_budget = scenario.budget[t];
+  const int    i_budget = scenario.budget[t];
+  nt::BitArray mask_a;
+  nt::BitArray mask_b;
   for (DemandArcIt demand_arc(inst.demand_graph); demand_arc != nt::INVALID; ++demand_arc) {
-    i_cost += dist(rs.getSrPath(t - 1, demand_arc), rs.getSrPath(t, demand_arc));
-    if (i_cost > i_budget) return false;
+    i_cost += details::distEx(rs.getSrPath(t - 1, demand_arc), rs.getSrPath(t, demand_arc), mask_a, mask_b);
+    if (i_cost > i_budget) {
+      LOG_F(ERROR, ERR_MSG_4, i_cost, i_budget, t);
+      return false;
+    }
   }
   return true;
 }
@@ -227,7 +259,7 @@ namespace ftxui_helpers {
       // title_block.push_back(txt("  "));
       // Split subtitle by newlines and create separate elements
       std::istringstream ss(subtitle);
-      std::string line;
+      std::string        line;
       while (std::getline(ss, line)) {
         title_block.push_back(txt(line) | color(Color::Cyan));
       }
@@ -525,7 +557,7 @@ struct ResultBuilder {
 #ifdef ENABLE_FTXUI
       ftxui_helpers::displayResults(*this);
 #else
-    std::cout << ERR_MSG_57 << std::endl;
+      std::cout << ERR_MSG_57 << std::endl;
 #endif
     } else {
       nt::JSONDocument doc;

@@ -106,19 +106,17 @@ using DemandValueMap = typename DemandGraph::template ArcMap< double >;
  */
 struct SrPathBit: SrPath {
   const Digraph* _g;
-  nt::BitArray   _mask;
 
   SrPathBit() : _g(nullptr) {}
 
   // Move constructor
-  SrPathBit(SrPathBit&& other) noexcept : SrPath(std::move(other)), _g(other._g), _mask(std::move(other._mask)) { other._g = nullptr; }
+  SrPathBit(SrPathBit&& other) noexcept : SrPath(std::move(other)), _g(other._g) { other._g = nullptr; }
 
   // Move assignment
   SrPathBit& operator=(SrPathBit&& other) noexcept {
     if (this != &other) {
       SrPath::operator=(std::move(other));
       _g = other._g;
-      _mask = std::move(other._mask);
       other._g = nullptr;
     }
     return *this;
@@ -131,36 +129,23 @@ struct SrPathBit: SrPath {
   void init(const Digraph& g, int n) noexcept {
     clear();
     _g = &g;
-    _mask.extendByBits(_g->nodeNum() * _g->nodeNum());
     reserve(n);
   }
 
   void init(const Digraph& g, const SrPath& srpath) noexcept {
     clear();
     SrPath::copyFrom(srpath);
-
     _g = &g;
-    _mask.extendByBits(_g->nodeNum() * _g->nodeNum());
-
-    if (srpath.segmentNum() >= 2) {
-      for (int i = 0; i < srpath.segmentNum() - 1; ++i) {
-        const Node from = srpath[i].toNode();
-        const Node to = srpath[i + 1].toNode();
-        _mask.setOneAt(g.id(from) * g.nodeNum() + g.id(to));
-      }
-    }
   }
 
   void init(const Digraph& g, const DemandGraph& dg, DemandArc demand_arc) noexcept {
     clear();
     _g = &g;
-    _mask.extendByBits(_g->nodeNum() * _g->nodeNum());
     addSegment(dg.source(demand_arc));
     finalize(dg.target(demand_arc));
   }
 
   void addSegment(Node node, Node last) noexcept {
-    _mask.setOneAt(_g->id(last) * _g->nodeNum() + _g->id(node));
     SrPath::addSegment(node);
   }
 
@@ -168,20 +153,17 @@ struct SrPathBit: SrPath {
 
   void finalize(Node target) noexcept {
     const Node last = SrPath::back().toNode();
-    _mask.setOneAt(_g->id(last) * _g->nodeNum() + _g->id(target));
     SrPath::addSegment(target);
   }
 
   void clear() noexcept {
     SrPath::clear();
-    _mask.removeAll();
     _g = nullptr;
   }
 
   void copyFrom(const SrPathBit& other) noexcept {
     clear();
     SrPath::copyFrom(other);
-    _mask.copyFrom(other._mask);
     _g = other._g;
   }
 };

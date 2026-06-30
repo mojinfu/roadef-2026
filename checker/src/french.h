@@ -39,7 +39,7 @@
 #define ERR_MSG_1 ICON_CROSS " Le réseau d'entrée n'est PAS bidirectionnel."
 #define ERR_MSG_2 ICON_CROSS " Le réseau d'entrée est vide ou n'a pas d'arcs."
 #define ERR_MSG_3 ICON_CROSS " Le graphe de demandes est vide ou n'a pas de demandes."
-#define ERR_MSG_4 ICON_CROSS " La contrainte budgétaire est violée (coût au moins {} > budget : {}) au pas de temps {}."
+#define ERR_MSG_4 ICON_CROSS " La contrainte de budget est violée (coût au moins {} > budget : {}) au pas de temps {}."
 #define ERR_MSG_5 ICON_CROSS " Un budget dans la liste des budgets n'est pas un objet valide."
 #define ERR_MSG_6 ICON_CROSS " {} : Format de demande incorrect"
 #define ERR_MSG_7 ICON_CROSS " {} : La taille du tableau de valeurs de demande ne correspond pas au nombre de créneaux horaires"

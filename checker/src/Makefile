@@ -31,6 +31,8 @@ TARGET=checker-v$(VERSION)-x86-64_linux
 CC=g++
 # Base compiler flags
 CFLAGS=-O3 -std=c++20 -DNDEBUG -ffunction-sections -fdata-sections -Wl,--gc-sections
+# CFLAGS=-g -std=c++20 -fno-stack-protector -fsanitize=address
+LDFLAGS=-static -static-libstdc++ -static-libgcc -s -Wl,--gc-sections
 
 # Add language definition
 CFLAGS+=-DLANG_$(CHECKER_LANG)
@@ -47,8 +49,6 @@ else
 	FTXUI_DEP=
 endif
 
-LDFLAGS=-static -static-libstdc++ -static-libgcc -s -Wl,--gc-sections
-# CFLAGS=-g -std=c++20 -fno-stack-protector -fsanitize=address
 
 .PHONY: all clean checker ftxui-fetch ftxui-build validate-networktools
 
