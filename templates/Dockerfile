@@ -36,17 +36,18 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # HEXALY: install hexaly solver (remove if not needed)
 RUN mkdir -p /opt/hexaly
-COPY license.dat /opt/hexaly/license.dat
+COPY _hexaly_license.dat /opt/hexaly/license.dat
 RUN /opt/venv/bin/pip install -i https://pip.hexaly.com hexaly
 
 # CPLEX: install cplex solver (remove if not needed)
-COPY cplex.tgz /home/cplex.tgz
-RUN tar -cvzf /home/cplex.tgz -C /
+COPY _build_cplex.tgz /home/_build_cplex.tgz
+RUN tar -xvzf /home/_build_cplex.tgz -C /
 ENV PATH="$PATH:/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/"
+ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/ibm/ILOG/CPLEX_Studio2212/cplex/lib/x86-64_linux/static_pic/"
 
 # GUROBI: install gurobi solver (remove if not needed)
-COPY gurobi1302.tgz /home/gurobi1302.tgz
-RUN tar -cvzf /home/gurobi1302.tgz -C /
+COPY _build_gurobi.tgz /home/_build_gurobi.tgz
+RUN tar -xvzf /home/_build_gurobi.tgz -C /
 ENV PATH="$PATH:/home/opt/gurobi1302/linux64/bin/"
 ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/home/opt/gurobi1302/linux64/lib/"
 
