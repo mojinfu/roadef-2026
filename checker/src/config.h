@@ -22,7 +22,7 @@
 
 // Checker Configuration
 #define CHECKER_NAME "EURO/ROADEF Challenge 2026 checker"
-#define CHECKER_VERSION "1.0.0"
+#define CHECKER_VERSION "1.0.1"
 #define CHECKER_LOGFILE "checker.log"
 #define CHECKER_COPYRIGHT                                                                             \
                "SPDX-FileCopyrightText: Copyright (c) 2026 Orange SA\n"                               \
