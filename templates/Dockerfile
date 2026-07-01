@@ -1,28 +1,18 @@
 #
-# Dockerfile template v1
-#
-# Instructions:
-# - please only make modifications to this file in-between the indication flags
-# - for better performance, you can remove packages/solvers not needed by your program
+# Dockerfile template v2 (30/06)
 #
 FROM ubuntu:24.04
 WORKDIR /home
 COPY . /home/
-# used for solver installation
-RUN mkdir -p /opt/hexaly
-RUN mkdir -p /opt/gurobi1302
-RUN mkdir -p /opt/ibm
-RUN chown 1006410000:1006410000 /opt/hexaly
-RUN chown 1006410000:1006410000 /opt/gurobi1302
-RUN chown 1006410000:1006410000 /opt/ibm
+RUN chmod -R +x /home/
 
 # --------------------------------
 # --- modifications start here ---
 # --------------------------------
 
 # Install python, git, and build tools in a single layer
-# Add "build-essential" to get g++ and other compilers.
-# Add "git" if needed.
+# We add "build-essential" to get g++ and other compilers.
+# We also add "git" because it's needed for the "git clone" command.
 # Finally, we clean up the apt cache to reduce image size.
 RUN apt-get update && apt-get install -y \
     python3 \
@@ -45,14 +35,20 @@ RUN /opt/venv/bin/pip install \
 ENV PATH="/opt/venv/bin:$PATH"
 
 # HEXALY: install hexaly solver (remove if not needed)
+RUN mkdir -p /opt/hexaly
+COPY license.dat /opt/hexaly/license.dat
 RUN /opt/venv/bin/pip install -i https://pip.hexaly.com hexaly
 
-# CPLEX: this line will trigger cplex installation later (remove if you don't need cplex)
+# CPLEX: install cplex solver (remove if not needed)
+COPY cplex.tgz /home/cplex.tgz
+RUN tar -cvzf /home/cplex.tgz -C /
 ENV PATH="$PATH:/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/"
 
-# GUROBI: remove if gurobi is not used (or only with gurobipy)
-ENV PATH="$PATH:/opt/gurobi1302/linux64/bin/"
-ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/gurobi1302/linux64/lib/"
+# GUROBI: install gurobi solver (remove if not needed)
+COPY gurobi1302.tgz /home/gurobi1302.tgz
+RUN tar -cvzf /home/gurobi1302.tgz -C /
+ENV PATH="$PATH:/home/opt/gurobi1302/linux64/bin/"
+ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/home/opt/gurobi1302/linux64/lib/"
 
 # Clone a repository and compile the C++ code (remove if not needed)
 RUN git clone https://gitlab.com/Orange-OpenSource/network-optimization-tools/networktools.git
