@@ -1,5 +1,5 @@
 #
-# Dockerfile template v2.1 (01/07)
+# Dockerfile template v2.2 (07/07)
 #
 FROM ubuntu:24.04
 WORKDIR /home
@@ -46,9 +46,10 @@ ENV PATH="$PATH:/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/"
 ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/ibm/ILOG/CPLEX_Studio2212/cplex/lib/x86-64_linux/static_pic/"
 
 # GUROBI: install gurobi solver (remove if not needed)
-# GUROBI: install gurobi solver (remove if not needed)
 COPY _build_gurobi.tgz /home/_build_gurobi.tgz
 RUN tar -xvzf /home/_build_gurobi.tgz -C /opt/
+RUN mkdir /opt/gurobi
+COPY _build_gurobi.lic /opt/gurobi/gurobi.lic
 ENV PATH="$PATH:/opt/gurobi1302/linux64/bin/"
 ENV LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/opt/gurobi1302/linux64/lib/"
 
