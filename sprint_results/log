@@ -1,5 +1,6 @@
-[INFO] Starting run_sprint_scores.py version 2026-06-08, with 85 teams, scanning directory 'candidate_archives'
+[INFO] Starting run_sprint_scores.py version 2026-07-01, with 85 teams, scanning directory 'candidate_archives'
 [INFO] The maximum score for an instance is 15 (i.e. R=15, cf. rules document)
+[INFO] Checker binary: ../cpp/checker-v1.2.2-x86-64_linux
 [INFO] No solution archive for team 1
 [INFO] Found file S2.zip (saved on disk on 2026-06-01)
 [INFO] Found file S3.zip (saved on disk on 2026-06-02)
@@ -1304,7 +1305,7 @@
 [INFO]     better than team S80 (load number 4: 0.598801 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 10 ; score 6
-[INFO] ☑️ Score for team S2: 244
+[INFO] ☑️ Total score for team S2: 244
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S3
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -2388,7 +2389,7 @@
 [INFO]     worse than team S80 (load number 2: 0.784273 > 0.745953)
 [INFO]     better than team J85 (load number 2: 0.784273 < 0.897619)
 [INFO]     --> rank 39 ; score 0
-[INFO] ☑️ Score for team S3: 59
+[INFO] ☑️ Total score for team S3: 59
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S6
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -3472,7 +3473,7 @@
 [INFO]     worse than team S80 (load number 4: 0.60525 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 27 ; score 0
-[INFO] ☑️ Score for team S6: 0
+[INFO] ☑️ Total score for team S6: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S8
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -4556,7 +4557,7 @@
 [INFO]     better than team S80 (load number 4: 0.598801 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 11 ; score 5
-[INFO] ☑️ Score for team S8: 89
+[INFO] ☑️ Total score for team S8: 89
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S9
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -5640,7 +5641,7 @@
 [INFO]     worse than team S80 (load number 2: 0.83176 > 0.745953)
 [INFO]     better than team J85 (load number 2: 0.83176 < 0.897619)
 [INFO]     --> rank 41 ; score 0
-[INFO] ☑️ Score for team S9: 0
+[INFO] ☑️ Total score for team S9: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S10
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -6724,7 +6725,7 @@
 [INFO]     worse than team S80 (load number 1: 1.018559 > 0.991312)
 [INFO]     worse than team J85 (load number 1: 1.018559 > 0.991312)
 [INFO]     --> rank 53 ; score 0
-[INFO] ☑️ Score for team S10: 0
+[INFO] ☑️ Total score for team S10: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S11
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -7808,7 +7809,7 @@
 [INFO]     worse than team S80 (load number 3: 0.662992 > 0.648211)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 33 ; score 0
-[INFO] ☑️ Score for team S11: 0
+[INFO] ☑️ Total score for team S11: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S12
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -8892,7 +8893,7 @@
 [INFO]     better than team S80 (load number 4: 0.5988 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 6 ; score 10
-[INFO] ☑️ Score for team S12: 146
+[INFO] ☑️ Total score for team S12: 146
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J17
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -9976,7 +9977,7 @@
 [INFO]     worse than team S80 (load number 3: 0.675422 > 0.648211)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 34 ; score 0
-[INFO] ☑️ Score for team J17: 0
+[INFO] ☑️ Total score for team J17: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S19
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -11060,7 +11061,7 @@
 [INFO]     worse than team S80 (load number 6: 0.5556 > 0.554573)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 19 ; score 0
-[INFO] ☑️ Score for team S19: 12
+[INFO] ☑️ Total score for team S19: 12
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J20
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -12144,7 +12145,7 @@
 [INFO]     worse than team S80 (load number 3: 0.680139 > 0.648211)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 35 ; score 0
-[INFO] ☑️ Score for team J20: 0
+[INFO] ☑️ Total score for team J20: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S21
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -13228,7 +13229,7 @@
 [INFO]     worse than team S80 (load number 2: 0.799753 > 0.745953)
 [INFO]     better than team J85 (load number 2: 0.799753 < 0.897619)
 [INFO]     --> rank 40 ; score 0
-[INFO] ☑️ Score for team S21: 0
+[INFO] ☑️ Total score for team S21: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S22
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -14312,7 +14313,7 @@
 [INFO]     better than team S80 (load number 4: 0.5988 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 2 ; score 14
-[INFO] ☑️ Score for team S22: 266
+[INFO] ☑️ Total score for team S22: 266
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S23
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -15396,7 +15397,7 @@
 [INFO]     better than team S80 (load number 4: 0.598801 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 12 ; score 4
-[INFO] ☑️ Score for team S23: 156
+[INFO] ☑️ Total score for team S23: 156
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S24
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -16480,7 +16481,7 @@
 [INFO]     better than team S80 (load number 4: 0.5988 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 5 ; score 11
-[INFO] ☑️ Score for team S24: 139
+[INFO] ☑️ Total score for team S24: 139
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J27
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -17564,7 +17565,7 @@
 [INFO]     worse than team S80 (load number 4: 0.599097 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 25 ; score 0
-[INFO] ☑️ Score for team J27: 169
+[INFO] ☑️ Total score for team J27: 169
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S29
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -18648,7 +18649,7 @@
 [INFO]     worse than team S80 (load number 37: 0.266297 > 0.266296)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 15 ; score 1
-[INFO] ☑️ Score for team S29: 14
+[INFO] ☑️ Total score for team S29: 14
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S32
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -19732,7 +19733,7 @@
 [INFO]     worse than team S80 (load number 3: 0.655905 > 0.648211)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 32 ; score 0
-[INFO] ☑️ Score for team S32: 0
+[INFO] ☑️ Total score for team S32: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S34
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -20816,7 +20817,7 @@
 [INFO]     worse than team S80 (load number 4: 0.598892 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 24 ; score 0
-[INFO] ☑️ Score for team S34: 0
+[INFO] ☑️ Total score for team S34: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J35
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -21900,7 +21901,7 @@
 [INFO]     worse than team S80 (load number 4: 0.619203 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 31 ; score 0
-[INFO] ☑️ Score for team J35: 0
+[INFO] ☑️ Total score for team J35: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S39
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -22984,7 +22985,7 @@
 [INFO]     worse than team S80 (load number 3: 0.701887 > 0.648211)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 36 ; score 0
-[INFO] ☑️ Score for team S39: 5
+[INFO] ☑️ Total score for team S39: 5
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S40
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -24068,7 +24069,7 @@
 [INFO]     worse than team S80 (load number 4: 0.611613 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 29 ; score 0
-[INFO] ☑️ Score for team S40: 0
+[INFO] ☑️ Total score for team S40: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J41
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -25152,7 +25153,7 @@
 [INFO]     worse than team S80 (load number 4: 0.618588 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 30 ; score 0
-[INFO] ☑️ Score for team J41: 12
+[INFO] ☑️ Total score for team J41: 12
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S44
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -26236,7 +26237,7 @@
 [INFO]     worse than team S80 (load number 4: 0.598803 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 22 ; score 0
-[INFO] ☑️ Score for team S44: 0
+[INFO] ☑️ Total score for team S44: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S45
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -27320,7 +27321,7 @@
 [INFO]     worse than team S80 (load number 9: 0.497977 > 0.497948)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 16 ; score 0
-[INFO] ☑️ Score for team S45: 35
+[INFO] ☑️ Total score for team S45: 35
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J46
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -28404,7 +28405,7 @@
 [INFO]     worse than team S80 (load number 2: 0.902133 > 0.745953)
 [INFO]     worse than team J85 (load number 2: 0.902133 > 0.897619)
 [INFO]     --> rank 47 ; score 0
-[INFO] ☑️ Score for team J46: 0
+[INFO] ☑️ Total score for team J46: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J47
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -29488,7 +29489,7 @@
 [INFO]     worse than team S80 (load number 2: 0.97661 > 0.745953)
 [INFO]     worse than team J85 (load number 2: 0.97661 > 0.897619)
 [INFO]     --> rank 50 ; score 0
-[INFO] ☑️ Score for team J47: 0
+[INFO] ☑️ Total score for team J47: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S48
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -30572,7 +30573,7 @@
 [INFO]     better than team S80 (load number 4: 0.598801 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 13 ; score 3
-[INFO] ☑️ Score for team S48: 16
+[INFO] ☑️ Total score for team S48: 16
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J50
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -31656,7 +31657,7 @@
 [INFO]     better than team S80 (load number 4: 0.5988 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 3 ; score 13
-[INFO] ☑️ Score for team J50: 190
+[INFO] ☑️ Total score for team J50: 190
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S51
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -32740,7 +32741,7 @@
 [INFO]     worse than team S80 (load number 2: 0.897619 > 0.745953)
 [INFO]     better than team J85 (load number 307: 0.164352 < 0.164359)
 [INFO]     --> rank 44 ; score 0
-[INFO] ☑️ Score for team S51: 0
+[INFO] ☑️ Total score for team S51: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J52
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -33824,7 +33825,7 @@
 [INFO]     worse than team S80 (load number 8: 0.543291 > 0.533597)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 18 ; score 0
-[INFO] ☑️ Score for team J52: 29
+[INFO] ☑️ Total score for team J52: 29
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S53
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -34908,7 +34909,7 @@
 [INFO]     worse than team S80 (load number 4: 0.598803 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 21 ; score 0
-[INFO] ☑️ Score for team S53: 77
+[INFO] ☑️ Total score for team S53: 77
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S54
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -35992,7 +35993,7 @@
 [INFO]     better than team S80 (load number 4: 0.598801 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 9 ; score 7
-[INFO] ☑️ Score for team S54: 105
+[INFO] ☑️ Total score for team S54: 105
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S55
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -37076,7 +37077,7 @@
 [INFO]     worse than team S80 (load number 4: 0.598804 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 23 ; score 0
-[INFO] ☑️ Score for team S55: 3
+[INFO] ☑️ Total score for team S55: 3
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S56
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -38160,7 +38161,7 @@
 [INFO]     worse than team S80 (load number 2: 0.779441 > 0.745953)
 [INFO]     better than team J85 (load number 2: 0.779441 < 0.897619)
 [INFO]     --> rank 38 ; score 0
-[INFO] ☑️ Score for team S56: 1
+[INFO] ☑️ Total score for team S56: 1
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J57
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -39244,7 +39245,7 @@
 [INFO]     worse than team S80 (load number 1: 0.999999 > 0.991312)
 [INFO]     worse than team J85 (load number 1: 0.999999 > 0.991312)
 [INFO]     --> rank 51 ; score 0
-[INFO] ☑️ Score for team J57: 0
+[INFO] ☑️ Total score for team J57: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J59
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -40328,7 +40329,7 @@
 [INFO]     worse than team S80 (load number 2: 0.90357 > 0.745953)
 [INFO]     worse than team J85 (load number 2: 0.90357 > 0.897619)
 [INFO]     --> rank 48 ; score 0
-[INFO] ☑️ Score for team J59: 0
+[INFO] ☑️ Total score for team J59: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S61
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -41412,7 +41413,7 @@
 [INFO]     worse than team S80 (load number 2: 0.897619 > 0.745953)
 [INFO]     better than team J85 (load number 3: 0.831966 < 0.840788)
 [INFO]     --> rank 43 ; score 0
-[INFO] ☑️ Score for team S61: 0
+[INFO] ☑️ Total score for team S61: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S62
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -42496,7 +42497,7 @@
 [INFO]     better than team S80 (load number 4: 0.5988 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 7 ; score 9
-[INFO] ☑️ Score for team S62: 55
+[INFO] ☑️ Total score for team S62: 55
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S63
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -43580,7 +43581,7 @@
 [INFO]     worse than team S80 (load number 9: 0.514099 > 0.497948)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 17 ; score 0
-[INFO] ☑️ Score for team S63: 0
+[INFO] ☑️ Total score for team S63: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J64
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -44664,7 +44665,7 @@
 [INFO]     worse than team S80 (load number 1: 0.999999 > 0.991312)
 [INFO]     worse than team J85 (load number 1: 0.999999 > 0.991312)
 [INFO]     --> rank 51 ; score 0
-[INFO] ☑️ Score for team J64: 0
+[INFO] ☑️ Total score for team J64: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S67
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -45748,7 +45749,7 @@
 [INFO]     better than team S80 (load number 4: 0.5988 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 1 ; score 15
-[INFO] ☑️ Score for team S67: 132
+[INFO] ☑️ Total score for team S67: 132
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S68
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -46832,7 +46833,7 @@
 [INFO]     worse than team S80 (load number 2: 0.883462 > 0.745953)
 [INFO]     better than team J85 (load number 2: 0.883462 < 0.897619)
 [INFO]     --> rank 42 ; score 0
-[INFO] ☑️ Score for team S68: 9
+[INFO] ☑️ Total score for team S68: 9
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S69
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -47916,7 +47917,7 @@
 [INFO]     better than team S80 (load number 4: 0.598801 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 8 ; score 8
-[INFO] ☑️ Score for team S69: 202
+[INFO] ☑️ Total score for team S69: 202
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J72
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -49000,7 +49001,7 @@
 [INFO]     worse than team S80 (load number 3: 0.720968 > 0.648211)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 37 ; score 0
-[INFO] ☑️ Score for team J72: 0
+[INFO] ☑️ Total score for team J72: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S74
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -50084,7 +50085,7 @@
 [INFO]     worse than team S80 (load number 2: 0.902133 > 0.745953)
 [INFO]     worse than team J85 (load number 2: 0.902133 > 0.897619)
 [INFO]     --> rank 46 ; score 0
-[INFO] ☑️ Score for team S74: 0
+[INFO] ☑️ Total score for team S74: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J75
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -51168,7 +51169,7 @@
 [INFO]     better than team S80 (load number 4: 0.5988 < 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 4 ; score 12
-[INFO] ☑️ Score for team J75: 55
+[INFO] ☑️ Total score for team J75: 55
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J76
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -52252,7 +52253,7 @@
 [INFO]     worse than team S80 (load number 4: 0.609562 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 28 ; score 0
-[INFO] ☑️ Score for team J76: 0
+[INFO] ☑️ Total score for team J76: 0
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J77
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -53336,7 +53337,7 @@
 [INFO]     worse than team S80 (load number 4: 0.598803 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 20 ; score 0
-[INFO] ☑️ Score for team J77: 86
+[INFO] ☑️ Total score for team J77: 86
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S78
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -54420,7 +54421,7 @@
 [INFO]     worse than team S80 (load number 4: 0.600269 > 0.598802)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 26 ; score 0
-[INFO] ☑️ Score for team S78: 14
+[INFO] ☑️ Total score for team S78: 14
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S79
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -55504,7 +55505,7 @@
 [INFO]     worse than team S80 (load number 2: 0.93619 > 0.745953)
 [INFO]     worse than team J85 (load number 2: 0.93619 > 0.897619)
 [INFO]     --> rank 49 ; score 0
-[INFO] ☑️ Score for team S79: 15
+[INFO] ☑️ Total score for team S79: 15
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team S80
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -56588,7 +56589,7 @@
 [INFO]     better than team S79 (load number 2: 0.745953 < 0.93619)
 [INFO]     better than team J85 (load number 2: 0.745953 < 0.897619)
 [INFO]     --> rank 14 ; score 2
-[INFO] ☑️ Score for team S80: 66
+[INFO] ☑️ Total score for team S80: 66
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
 [INFO] ▬▬▬ Computing scores for team J85
 [INFO] ▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬
@@ -57672,7 +57673,7 @@
 [INFO]     better than team S79 (load number 2: 0.897619 < 0.93619)
 [INFO]     worse than team S80 (load number 2: 0.897619 > 0.745953)
 [INFO]     --> rank 45 ; score 0
-[INFO] ☑️ Score for team J85: 0
+[INFO] ☑️ Total score for team J85: 0
 [INFO] ⚠️⚠️⚠️ Alerts for team S74:
 [INFO]    ⚠️ File 'candidate_archives/S74/setA-05-srpaths.json' does not contain a valid solution
 [INFO]    ⚠️ File 'candidate_archives/S74/setA-10-srpaths.json' does not contain a valid solution
@@ -57730,6 +57731,8 @@
 [INFO] 🎯 Score of Team S79: 15
 [INFO] 🎯 Score of Team S80: 66
 [INFO] 🎯 Score of Team J85: 0
+[INFO] Generating loads vector
+[INFO] ✅ Successfully saved load vector data to 'loads_vector.csv'
 [INFO] Generating ranking tables for readme.md
 [INFO] ✅ Successfully saved all ranking tables to 'readme.md'
-[INFO] Time used: 0:04:35.148280
+[INFO] Time used: 0:02:10.844348
