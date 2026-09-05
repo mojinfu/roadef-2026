@@ -19,7 +19,12 @@ def git(*args: str) -> str:
     try:
         r = subprocess.run(["git", *args], capture_output=True, text=True,
                            cwd=REPO, timeout=30)
-        return r.stdout.strip() if r.returncode == 0 else "n/a"
+        if r.returncode != 0:
+            return "n/a"
+        # Only strip the trailing newline: porcelain lines keep their leading
+        # column space (" M path"), and a blanket .strip() would eat the first
+        # line's leading space and corrupt its path.
+        return r.stdout.rstrip("\n")
     except Exception:
         return "n/a"
 

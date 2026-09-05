@@ -23,6 +23,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tasr.algos.search import SearchState, solve_with_time_budget
+from tasr.algos.search_v2 import solve_with_time_budget_v2
 from tasr.ecmp import AtomCache
 from tasr.eval import Evaluator
 from tasr.eval.objective import CompareSpec, lex_compare_sorted, saturations_vector, truncate_loads
@@ -30,6 +31,8 @@ from tasr.io import load_instance, write_solution
 from tasr.model import DirectedGraph, Solution
 
 SPEC = CompareSpec()
+
+SOLVERS = {"v1": solve_with_time_budget, "v2": solve_with_time_budget_v2}
 
 
 def load_best_vectors():
@@ -51,7 +54,9 @@ def main():
     ap.add_argument("--instances", default="", help="comma list to run only a subset")
     ap.add_argument("--time", type=float, default=20.0, help="per-instance solver seconds")
     ap.add_argument("--restarts", type=int, default=2)
+    ap.add_argument("--solver", choices=sorted(SOLVERS), default="v1")
     args = ap.parse_args()
+    solve = SOLVERS[args.solver]
 
     best_vectors = load_best_vectors()
     files = sorted(glob.glob(f"{args.set}/*-net.json"),
@@ -62,6 +67,7 @@ def main():
 
     outdir = Path(args.outdir)
     outdir.mkdir(exist_ok=True)
+    print(f"# solver={args.solver} time_budget={args.time}s restarts={args.restarts} seed=0")
     header = (f"{'inst':>10} {'dem':>5} {'bl_mlu':>9} {'sr_mlu':>9} "
               f"{'budget':>7} {'dist':>5} {'top5(trunc6)':>60} {'vs_best':>7} {'sec':>6}")
     print(header)
@@ -75,9 +81,9 @@ def main():
         cache = AtomCache(graph, inst.scenario.interventions, maxsize=200_000)
         ev = Evaluator(inst, graph, cache)
         bl = ev.saturations(Solution.empty(inst.n_demands, inst.n_slots))
-        sol, state, sat = solve_with_time_budget(inst, graph, cache,
-                                                 time_budget=args.time,
-                                                 restarts=args.restarts)
+        sol, state, sat = solve(inst, graph, cache,
+                                time_budget=args.time,
+                                restarts=args.restarts)
         elapsed = time.time() - t0
         budget = state.budget1
         dist = state.distance()

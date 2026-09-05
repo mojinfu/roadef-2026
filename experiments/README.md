@@ -25,9 +25,9 @@ python scripts/snapshot_env.py experiments/2026-09-06_exp02_checker_xval
 
 | 实验 | 日期 | 求解器 | 测试集 | 一句话结论 |
 |---|---|---|---|---|
-| [exp01 v0.1 setA 基准](2026-09-05_exp01_v01_setA_bench/report.md) | 2026-09-05 | v0.1 单 waypoint 局部搜索 | setA×20 | max 负载 9/20 与 sprint 第一名持平；整向量 19/20 落后；setA-12 出现"好于 sprint"但可信度存疑 |
-| [exp02 checker 交叉验证](2026-09-06_exp02_checker_xval/report.md) | 2026-09-06 | v0.1 解 | setA×20 | 官方 checker 逐实例核对负载/MLU，定位并修复评估器偏差 |
-| exp03 v0.2 setA 基准 | 2026-09-06 | v0.2 多段+协同 | setA×20 | （进行中） |
+| [exp01 v0.1 setA 基准](2026-09-05_exp01_v01_setA_bench/report.md) | 2026-09-05（09-06 更正重跑） | v0.1 单 waypoint 局部搜索 | setA×20 | max 负载 13/20 与 sprint 第一名持平（截6）；整向量仍落后（邻域上限）；"好于 sprint"异常已更正 |
+| [exp02 checker 交叉验证](2026-09-06_exp02_checker_xval/report.md) | 2026-09-06 | Python 评估器 | setA×20 | baseline+solved 共 40 次与官方 checker 逐值一致（maxdiff ~1e-12）；评估模型可信 |
+| [exp03 v0.2 setA 基准](2026-09-06_exp03_v02_setA_bench/report.md) | 2026-09-06 | v0.2 多段 twin+协同 | setA×20 | 紧预算硬实例 MLU 大幅下降（setA-06 .366→.110、setA-10 .576→.092、setA-13 .688→.135、setA-16 .836→.393、setA-19 .906→.564，全部 dist=0 twin）；40/40 checker 通过；整向量 v1/v2 各优 10 例，提交应取每实例更优 |
 
 ## 数据与脚本入口
 

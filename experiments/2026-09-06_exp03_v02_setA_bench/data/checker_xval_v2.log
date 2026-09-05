@@ -1,0 +1,164 @@
+[setA-01/baseline] PASS  maxdiff=9.95e-13  n_over_tol=0
+      t0: mlu ours=1.000001 checker=1.000001 maxdiff=9.60e-13 ok
+      t1: mlu ours=0.566327 checker=0.566327 maxdiff=9.95e-13 ok
+[setA-01/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.929384 checker=0.929384 maxdiff=9.97e-13 ok
+      t1: mlu ours=0.408215 checker=0.408215 maxdiff=1.00e-12 ok
+[setA-02/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=1.000000 checker=1.000000 maxdiff=9.94e-13 ok
+      t1: mlu ours=1.098078 checker=1.098078 maxdiff=1.00e-12 ok
+[setA-02/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.548578 checker=0.548578 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.903075 checker=0.903075 maxdiff=1.00e-12 ok
+[setA-03/baseline] PASS  maxdiff=9.95e-13  n_over_tol=0
+      t0: mlu ours=1.000001 checker=1.000001 maxdiff=9.89e-13 ok
+      t1: mlu ours=0.601896 checker=0.601896 maxdiff=9.95e-13 ok
+[setA-03/solved] PASS  maxdiff=9.95e-13  n_over_tol=0
+      t0: mlu ours=0.943543 checker=0.943543 maxdiff=9.93e-13 ok
+      t1: mlu ours=0.435925 checker=0.435925 maxdiff=9.95e-13 ok
+[setA-04/baseline] PASS  maxdiff=9.97e-13  n_over_tol=0
+      t0: mlu ours=0.691824 checker=0.691824 maxdiff=9.97e-13 ok
+      t1: mlu ours=1.000001 checker=1.000001 maxdiff=9.97e-13 ok
+[setA-04/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.465409 checker=0.465409 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.585430 checker=0.585430 maxdiff=9.89e-13 ok
+[setA-05/baseline] PASS  maxdiff=9.99e-13  n_over_tol=0
+      t0: mlu ours=0.333317 checker=0.333317 maxdiff=9.99e-13 ok
+      t1: mlu ours=0.999986 checker=0.999986 maxdiff=9.92e-13 ok
+[setA-05/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.115524 checker=0.115524 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.204986 checker=0.204986 maxdiff=9.92e-13 ok
+[setA-06/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=1.000000 checker=1.000000 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.774648 checker=0.774648 maxdiff=1.00e-12 ok
+[setA-06/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.109859 checker=0.109859 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.091549 checker=0.091549 maxdiff=1.00e-12 ok
+[setA-07/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.907989 checker=0.907989 maxdiff=1.00e-12 ok
+      t1: mlu ours=1.000000 checker=1.000000 maxdiff=1.00e-12 ok
+[setA-07/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.907989 checker=0.907989 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.708428 checker=0.708428 maxdiff=1.00e-12 ok
+[setA-08/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=1.000000 checker=1.000000 maxdiff=9.99e-13 ok
+      t1: mlu ours=0.701452 checker=0.701452 maxdiff=1.00e-12 ok
+[setA-08/solved] PASS  maxdiff=9.97e-13  n_over_tol=0
+      t0: mlu ours=0.318904 checker=0.318904 maxdiff=9.97e-13 ok
+      t1: mlu ours=0.306868 checker=0.306868 maxdiff=9.94e-13 ok
+[setA-09/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.611137 checker=0.611137 maxdiff=1.00e-12 ok
+      t1: mlu ours=1.000000 checker=1.000000 maxdiff=1.00e-12 ok
+[setA-09/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.505384 checker=0.505384 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.849650 checker=0.849650 maxdiff=1.00e-12 ok
+[setA-10/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=1.000000 checker=1.000000 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.891304 checker=0.891304 maxdiff=1.00e-12 ok
+[setA-10/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.092391 checker=0.092391 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.092391 checker=0.092391 maxdiff=1.00e-12 ok
+[setA-11/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=1.000000 checker=1.000000 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.785789 checker=0.785789 maxdiff=1.00e-12 ok
+[setA-11/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.651417 checker=0.651417 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.785789 checker=0.785789 maxdiff=1.00e-12 ok
+[setA-12/baseline] PASS  maxdiff=9.99e-13  n_over_tol=0
+      t0: mlu ours=1.000110 checker=1.000110 maxdiff=9.99e-13 ok
+      t1: mlu ours=0.879873 checker=0.879873 maxdiff=9.98e-13 ok
+[setA-12/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.640075 checker=0.640075 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.879873 checker=0.879873 maxdiff=9.97e-13 ok
+[setA-13/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.999999 checker=0.999999 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.935896 checker=0.935897 maxdiff=1.00e-12 ok
+[setA-13/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.135043 checker=0.135043 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.134615 checker=0.134615 maxdiff=1.00e-12 ok
+[setA-14/baseline] PASS  maxdiff=9.99e-13  n_over_tol=0
+      t0: mlu ours=1.000000 checker=1.000000 maxdiff=9.97e-13 ok
+      t1: mlu ours=0.735580 checker=0.735580 maxdiff=9.99e-13 ok
+[setA-14/solved] PASS  maxdiff=9.99e-13  n_over_tol=0
+      t0: mlu ours=0.434209 checker=0.434209 maxdiff=9.97e-13 ok
+      t1: mlu ours=0.533148 checker=0.533148 maxdiff=9.99e-13 ok
+[setA-15/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=1.000000 checker=1.000000 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.898696 checker=0.898696 maxdiff=1.00e-12 ok
+[setA-15/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.825206 checker=0.825206 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.898696 checker=0.898696 maxdiff=1.00e-12 ok
+[setA-16/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.967213 checker=0.967213 maxdiff=1.00e-12 ok
+      t1: mlu ours=1.000000 checker=1.000000 maxdiff=1.00e-12 ok
+[setA-16/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.393443 checker=0.393443 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.385246 checker=0.385246 maxdiff=1.00e-12 ok
+[setA-17/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=1.000075 checker=1.000075 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.444478 checker=0.444478 maxdiff=9.99e-13 ok
+[setA-17/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.424192 checker=0.424192 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.365458 checker=0.365458 maxdiff=9.99e-13 ok
+[setA-18/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.633365 checker=0.633365 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.999999 checker=0.999999 maxdiff=1.00e-12 ok
+[setA-18/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.633365 checker=0.633365 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.999999 checker=0.999999 maxdiff=1.00e-12 ok
+[setA-19/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=1.000000 checker=1.000000 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.885246 checker=0.885246 maxdiff=1.00e-12 ok
+[setA-19/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.564403 checker=0.564403 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.559250 checker=0.559250 maxdiff=1.00e-12 ok
+[setA-20/baseline] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.999999 checker=0.999999 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.840789 checker=0.840789 maxdiff=1.00e-12 ok
+[setA-20/solved] PASS  maxdiff=1.00e-12  n_over_tol=0
+      t0: mlu ours=0.991312 checker=0.991312 maxdiff=1.00e-12 ok
+      t1: mlu ours=0.831967 checker=0.831967 maxdiff=1.00e-12 ok
+
+(tmp srpaths kept at C:\Users\xudeyi\AppData\Local\Temp\tasr_checker_ic1jefhl)
+
+== 40/40 comparisons within tol 1e-06
+   PASS  setA-01/baseline  maxdiff=9.95e-13
+   PASS  setA-01/solved  maxdiff=1.00e-12
+   PASS  setA-02/baseline  maxdiff=1.00e-12
+   PASS  setA-02/solved  maxdiff=1.00e-12
+   PASS  setA-03/baseline  maxdiff=9.95e-13
+   PASS  setA-03/solved  maxdiff=9.95e-13
+   PASS  setA-04/baseline  maxdiff=9.97e-13
+   PASS  setA-04/solved  maxdiff=1.00e-12
+   PASS  setA-05/baseline  maxdiff=9.99e-13
+   PASS  setA-05/solved  maxdiff=1.00e-12
+   PASS  setA-06/baseline  maxdiff=1.00e-12
+   PASS  setA-06/solved  maxdiff=1.00e-12
+   PASS  setA-07/baseline  maxdiff=1.00e-12
+   PASS  setA-07/solved  maxdiff=1.00e-12
+   PASS  setA-08/baseline  maxdiff=1.00e-12
+   PASS  setA-08/solved  maxdiff=9.97e-13
+   PASS  setA-09/baseline  maxdiff=1.00e-12
+   PASS  setA-09/solved  maxdiff=1.00e-12
+   PASS  setA-10/baseline  maxdiff=1.00e-12
+   PASS  setA-10/solved  maxdiff=1.00e-12
+   PASS  setA-11/baseline  maxdiff=1.00e-12
+   PASS  setA-11/solved  maxdiff=1.00e-12
+   PASS  setA-12/baseline  maxdiff=9.99e-13
+   PASS  setA-12/solved  maxdiff=1.00e-12
+   PASS  setA-13/baseline  maxdiff=1.00e-12
+   PASS  setA-13/solved  maxdiff=1.00e-12
+   PASS  setA-14/baseline  maxdiff=9.99e-13
+   PASS  setA-14/solved  maxdiff=9.99e-13
+   PASS  setA-15/baseline  maxdiff=1.00e-12
+   PASS  setA-15/solved  maxdiff=1.00e-12
+   PASS  setA-16/baseline  maxdiff=1.00e-12
+   PASS  setA-16/solved  maxdiff=1.00e-12
+   PASS  setA-17/baseline  maxdiff=1.00e-12
+   PASS  setA-17/solved  maxdiff=1.00e-12
+   PASS  setA-18/baseline  maxdiff=1.00e-12
+   PASS  setA-18/solved  maxdiff=1.00e-12
+   PASS  setA-19/baseline  maxdiff=1.00e-12
+   PASS  setA-19/solved  maxdiff=1.00e-12
+   PASS  setA-20/baseline  maxdiff=1.00e-12
+   PASS  setA-20/solved  maxdiff=1.00e-12
