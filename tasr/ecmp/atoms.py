@@ -26,10 +26,6 @@ from ..model import DirectedGraph
 __all__ = ["compute_atom", "AtomCache"]
 
 _INF = float("inf")
-# Metrics are arbitrary floats; shortest-path distances are sums of many such
-# values, so float round-off makes an exact ``== d`` equality unreliable.
-# Use a tolerance relative to the shortest-path length.
-_TOL = 1e-9
 
 
 def _dijkstra(
@@ -61,27 +57,6 @@ def _dijkstra(
     return dist
 
 
-def _tight_arcs(
-    graph: DirectedGraph,
-    node: int,
-    dist_f: np.ndarray,
-    dist_r: np.ndarray,
-    d: float,
-    blocked: FrozenSet[int],
-):
-    """Outgoing arcs of ``node`` belonging to FG(u,v) (i.e. on a shortest path)."""
-    out = []
-    for arc in graph.outs[node]:
-        if arc.id in blocked:
-            continue
-        # arc (node -> arc.to) lies on a shortest u->v path iff
-        #   dist_f[node] + metric + dist_r[arc.to] == dist_f[v] == d
-        lhs = dist_f[node] + arc.metric + dist_r[arc.to]
-        if abs(lhs - d) <= _TOL * (1.0 + abs(d)):
-            out.append(arc)
-    return out
-
-
 def compute_atom(
     graph: DirectedGraph,
     u: int,
@@ -93,32 +68,45 @@ def compute_atom(
     Returns a float64 array of length ``graph.m`` with the fraction of a unit
     demand crossing each arc, or ``None`` if ``u`` and ``v`` are disconnected
     once ``blocked`` arcs are removed.
+
+    The forwarding graph and the split rule mirror the official checker
+    (networktools ``ShortestPathRouting`` / ``EcmpBase``): a *single* backward
+    Dijkstra from ``v`` yields ``dist_r``, and an arc ``x -> y`` belongs to the
+    forwarding graph iff ``dist_r[x] == len(x, y) + dist_r[y]`` with **exact
+    float equality** (no tolerance).  networktools relaxes with ``==``, so a
+    relative-tolerance test here over-includes slightly-longer arcs and
+    mis-splits near-tie topologies (observed on setA-14).
     """
     if u == v:
         return np.zeros(graph.m, dtype=np.float64)
 
     blocked = frozenset(blocked)
-    dist_f = _dijkstra(graph, u, blocked, reverse=False)
-    dist_r = _dijkstra(graph, v, blocked, reverse=True)
+    dist_r = _dijkstra(graph, v, blocked, reverse=True)  # v -> x shortest (x on u side)
 
-    d_uv = dist_f[v]
-    if math.isinf(d_uv):
+    if math.isinf(dist_r[u]):
         return None
 
     atom = np.zeros(graph.m, dtype=np.float64)
     flow = {u: 1.0}
 
-    # Process nodes in increasing distance-from-source order.  Every tight arc
-    # strictly increases dist_f (metrics are positive), so flow only moves
-    # forward along the ordering.
-    order = [node for node in range(graph.n_nodes) if math.isfinite(dist_f[node])]
-    order.sort(key=lambda x: dist_f[x])
+    # Process nodes from source to target.  Flow only ever moves along arcs
+    # whose tail is farther from v than their head, i.e. to strictly smaller
+    # dist_r (metrics are positive), so a decreasing-dist_r order is acyclic.
+    order = [node for node in range(graph.n_nodes) if math.isfinite(dist_r[node])]
+    order.sort(key=lambda x: dist_r[x], reverse=True)
 
     for node in order:
         f_node = flow.get(node, 0.0)
         if f_node == 0.0:
             continue
-        tight = _tight_arcs(graph, node, dist_f, dist_r, d_uv, blocked)
+        tight = []
+        for arc in graph.outs[node]:
+            if arc.id in blocked:
+                continue
+            # arc node -> arc.to is on a shortest node->v path iff it was
+            # recorded as an exact-tie predecessor by the backward Dijkstra.
+            if dist_r[node] == dist_r[arc.to] + arc.metric:
+                tight.append(arc)
         if not tight:
             if node != v:
                 # Flow must never stall on a non-target vertex of FG.
