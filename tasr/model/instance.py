@@ -44,10 +44,18 @@ class Scenario:
 
 @dataclass(frozen=True)
 class Instance:
-    """A complete T-ASR instance (network + demands + scenario)."""
+    """A complete T-ASR instance (network + demands + scenario).
+
+    Node identity: the network / traffic files identify nodes by an integer
+    ``id`` that may be listed in *any* order (setA-05/08/12/14/17 are reversed).
+    Internally we use contiguous *positions* ``0..n_nodes-1``; ``node_ids`` maps
+    a position back to its file ``id`` and demands/waypoints/arc endpoints are
+    stored as positions.  Convert at the I/O boundary (writer emits ids).
+    """
 
     name: str
-    node_names: Tuple[str, ...]      # node id -> name
+    node_names: Tuple[str, ...]      # position -> display name
+    node_ids: Tuple[int, ...]        # position -> network-file node id
     arcs: Tuple[Arc, ...]            # arc id == index
     n_slots: int
     demands: Tuple[Demand, ...]      # demand id == index (position in the JSON array)
@@ -57,6 +65,11 @@ class Instance:
     @property
     def n_nodes(self) -> int:
         return len(self.node_names)
+
+    @property
+    def node_index(self) -> dict:
+        """network-file id -> internal position."""
+        return {nid: i for i, nid in enumerate(self.node_ids)}
 
     @property
     def n_arcs(self) -> int:

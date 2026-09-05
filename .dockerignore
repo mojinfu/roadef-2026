@@ -1,0 +1,13 @@
+.git/
+.venv/
+setA/
+setB/
+sprint_results/
+runs/
+runs_benchA.log
+experiments/
+docs/
+tests/
+*.log
+*.pyc
+__pycache__/

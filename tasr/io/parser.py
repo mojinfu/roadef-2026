@@ -24,8 +24,9 @@ def _load_json(path: str):
 def load_network_file(net_path: str):
     """Parse a ``*-net.json`` file.
 
-    Returns ``(node_names, arcs)`` where ``node_names[i]`` is the label of node
-    ``i`` and ``arcs`` is a list of :class:`Arc` in id order.
+    Returns ``(node_names, node_ids, arcs)`` where ``node_names[i]`` /
+    ``node_ids[i]`` are the label / file id of node position ``i`` and ``arcs``
+    is a list of :class:`Arc` in id order whose endpoints are *positions*.
     """
     doc = _load_json(net_path)
 
@@ -33,6 +34,7 @@ def load_network_file(net_path: str):
         raise ValueError(f"{net_path}: missing 'nodes' or 'links' section")
 
     node_names: Sequence[str] = []
+    node_ids: Sequence[int] = []
     id_to_pos = {}
     for nd in doc["nodes"]:
         nid = int(nd["id"])
@@ -42,6 +44,7 @@ def load_network_file(net_path: str):
             raise ValueError(f"{net_path}: duplicate node id {nid}")
         id_to_pos[nid] = len(node_names)
         node_names.append(str(nd.get("name", str(nid))))
+        node_ids.append(nid)
     n_nodes = len(node_names)
 
     arcs = []
@@ -67,7 +70,7 @@ def load_network_file(net_path: str):
         raise ValueError(f"{net_path}: empty network")
     if n_nodes == 0:
         raise ValueError(f"{net_path}: no nodes")
-    return node_names, arcs
+    return node_names, node_ids, arcs
 
 
 def load_traffic_matrix_file(tm_path: str):
@@ -126,17 +129,28 @@ def load_scenario_file(scenario_path: str, n_slots: int):
 
 
 def load_instance(net_path: str, tm_path: str, scenario_path: str, name: str | None = None) -> Instance:
-    """Load the three files of an instance and cross-check the references."""
-    node_names, arcs = load_network_file(net_path)
+    """Load the three files of an instance and cross-check the references.
+
+    Demand endpoints and srpath waypoints are given in the network-file *node
+    ids*, which may be listed in an arbitrary order (several setA files list
+    them reversed).  Internally every node reference is a *position*; the
+    mapping is kept in :attr:`Instance.node_ids` / ``node_index`` and the I/O
+    layer converts at the boundaries.
+    """
+    node_names, node_ids, arcs = load_network_file(net_path)
     n_slots, demands = load_traffic_matrix_file(tm_path)
     scenario = load_scenario_file(scenario_path, n_slots)
 
-    node_pos = {i for i in range(len(node_names))}
+    id_to_pos = {nid: i for i, nid in enumerate(node_ids)}
+    remapped = []
     for i, d in enumerate(demands):
-        if d.source not in node_pos or d.target not in node_pos:
+        if d.source not in id_to_pos or d.target not in id_to_pos:
             raise ValueError(f"{tm_path}: demand {i} references unknown node")
         if d.source == d.target:
             raise ValueError(f"{tm_path}: demand {i} is degenerate (s == t)")
+        remapped.append(
+            Demand(source=id_to_pos[d.source], target=id_to_pos[d.target], volume=d.volume)
+        )
 
     max_arc_id = len(arcs)
     for t in range(n_slots):
@@ -153,8 +167,9 @@ def load_instance(net_path: str, tm_path: str, scenario_path: str, name: str | N
     return Instance(
         name=name,
         node_names=tuple(node_names),
+        node_ids=tuple(node_ids),
         arcs=tuple(arcs),
         n_slots=n_slots,
-        demands=tuple(demands),
+        demands=tuple(remapped),
         scenario=scenario,
     )

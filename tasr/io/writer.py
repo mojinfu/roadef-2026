@@ -25,11 +25,11 @@ def solution_to_dict(sol: Solution, inst: Instance) -> Dict:
         for t in range(sol.n_slots):
             wps = sol.waypoints[d][t]
             if wps:
-                # validate node ids exist (defensive; waypoints are node ids)
+                # waypoints are internal positions; the file wants network ids
                 for w in wps:
                     if not (0 <= w < inst.n_nodes):
                         raise ValueError(f"waypoint {w} out of range (demand {d}, t={t})")
-                w_list = [int(w) for w in wps]
+                w_list = [int(inst.node_ids[w]) for w in wps]
             else:
                 w_list = []
             out.append({"d": d, "t": t, "w": w_list})

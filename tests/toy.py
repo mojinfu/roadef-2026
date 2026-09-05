@@ -54,6 +54,7 @@ def build_toy_instance() -> Instance:
     return Instance(
         name="toy",
         node_names=NODE_NAMES,
+        node_ids=tuple(range(len(NODE_NAMES))),  # toy file ids == positions
         arcs=arcs(),
         n_slots=2,
         demands=demands,
