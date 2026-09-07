@@ -57,6 +57,20 @@ def _dijkstra(
     return dist
 
 
+def distances_from(
+    graph: DirectedGraph, source: int, blocked: Iterable[int] = ()
+) -> np.ndarray:
+    """Shortest distances ``source -> x`` in the graph minus ``blocked`` arcs."""
+    return _dijkstra(graph, source, frozenset(blocked), reverse=False)
+
+
+def distances_to(
+    graph: DirectedGraph, target: int, blocked: Iterable[int] = ()
+) -> np.ndarray:
+    """Shortest distances ``x -> target`` in the graph minus ``blocked`` arcs."""
+    return _dijkstra(graph, target, frozenset(blocked), reverse=True)
+
+
 def compute_atom(
     graph: DirectedGraph,
     u: int,

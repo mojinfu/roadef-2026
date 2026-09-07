@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tasr.algos.search import SearchState, solve_with_time_budget
 from tasr.algos.search_v2 import solve_with_time_budget_v2
+from tasr.algos.search_v3 import solve_with_time_budget_v3
 from tasr.ecmp import AtomCache
 from tasr.eval import Evaluator
 from tasr.eval.objective import CompareSpec, lex_compare_sorted, saturations_vector, truncate_loads
@@ -32,7 +33,8 @@ from tasr.model import DirectedGraph, Solution
 
 SPEC = CompareSpec()
 
-SOLVERS = {"v1": solve_with_time_budget, "v2": solve_with_time_budget_v2}
+SOLVERS = {"v1": solve_with_time_budget, "v2": solve_with_time_budget_v2,
+           "v3": solve_with_time_budget_v3}
 
 
 def load_best_vectors():
