@@ -9,6 +9,7 @@
 package mip
 
 import (
+	"fmt"
 	"sort"
 
 	"tasr/internal/graph"
@@ -52,15 +53,34 @@ type Generator struct {
 // Build returns the pool of demands whose current routing at slot t loads arcA,
 // together with single-waypoint alternatives that strictly reduce that load.
 func (gen *Generator) Build(t, arcA int) (*Pool, error) {
+	return gen.BuildKeys(t, []int{arcA})
+}
+
+// BuildKeys returns the pool of demands whose current routing at slot t loads
+// at least one of the hot arcs, with single-waypoint alternatives that strictly
+// reduce the load of at least one hot arc.  Candidates are deduplicated across
+// hot arcs and ranked by the largest relief they give to any one of them.
+func (gen *Generator) BuildKeys(t int, hotArcs []int) (*Pool, error) {
 	if gen.MaxCandPerDemand <= 0 {
 		gen.MaxCandPerDemand = 8
 	}
 	if gen.FracEps <= 0 {
 		gen.FracEps = 1e-9
 	}
+	if len(hotArcs) == 0 {
+		return nil, fmt.Errorf("mip: BuildKeys with empty hot-arc set")
+	}
 	inst, g, sn := gen.Inst, gen.G, gen.Snap
-	m, T := g.M, inst.NSlots
+	m := g.M
 	p := &Pool{inst: inst, g: g, snap: sn, t: t, m: m}
+
+	keyOf := func(w []int) string {
+		b := make([]byte, 0, len(w)*4)
+		for _, x := range w {
+			b = append(b, byte(x>>8), byte(x))
+		}
+		return string(b)
+	}
 
 	n := inst.NNodes()
 	for d := 0; d < inst.NDemands(); d++ {
@@ -74,58 +94,95 @@ func (gen *Generator) Build(t, arcA int) (*Pool, error) {
 		if err != nil {
 			continue // current routing somehow disconnected: skip
 		}
-		curLoadA := vol * curUnit[arcA]
-		if curLoadA <= gen.FracEps {
-			continue // does not load the hot arc at this slot
+		curLoad := scaleUnit(curUnit, vol)
+
+		// Which hot arcs does this demand currently load?
+		loadsHot := false
+		for _, ha := range hotArcs {
+			if curLoad[ha] > gen.FracEps {
+				loadsHot = true
+				break
+			}
+		}
+		if !loadsHot {
+			continue
+		}
+
+		reliefOn := func(unit []float64, ha int) float64 {
+			return curLoad[ha] - vol*unit[ha]
+		}
+		bestRel := func(unit []float64) float64 {
+			best := -1.0
+			for _, ha := range hotArcs {
+				if r := reliefOn(unit, ha); r > best {
+					best = r
+				}
+			}
+			return best
 		}
 
 		type alt struct {
 			wps  []int
 			unit []float64
-			load []float64
-			rel  float64 // relief on hot arc
+			rel  float64
 		}
 		var alts []alt
 		seen := map[string]bool{}
-		key := func(w []int) string {
-			b := make([]byte, 0, len(w)*4)
-			for _, x := range w {
-				b = append(b, byte(x>>8), byte(x))
-			}
-			return string(b)
-		}
+		var nodes []int
 		for w := 0; w < n; w++ {
 			if w == dem.Source || w == dem.Target {
 				continue
 			}
+			nodes = append(nodes, w)
+		}
+		// Single-waypoint reroutes.
+		for _, w := range nodes {
 			wps := []int{w}
-			if seen[key(wps)] {
-				continue
-			}
+			k := keyOf(wps)
+			seen[k] = true
 			unit, err := sn.UnitRoute(d, t, wps)
 			if err != nil {
 				continue
 			}
-			if vol*unit[arcA] < curLoadA-gen.FracEps {
-				seen[key(wps)] = true
-				alts = append(alts, alt{wps: wps, unit: unit, load: scaleUnit(unit, vol), rel: curLoadA - vol*unit[arcA]})
+			if rel := bestRel(unit); rel > gen.FracEps {
+				alts = append(alts, alt{wps: wps, unit: unit, rel: rel})
+			}
+		}
+		// Two-waypoint reroutes (unordered pairs).  A single waypoint cannot
+		// avoid an arc that lies on every shortest path into an intermediate
+		// node; splitting the path twice can detour around such a cut.
+		for i := 0; i < len(nodes); i++ {
+			for j := i + 1; j < len(nodes); j++ {
+				wps := []int{nodes[i], nodes[j]}
+				k := keyOf(wps)
+				if seen[k] {
+					continue
+				}
+				seen[k] = true
+				unit, err := sn.UnitRoute(d, t, wps)
+				if err != nil {
+					continue
+				}
+				if rel := bestRel(unit); rel > gen.FracEps {
+					alts = append(alts, alt{wps: wps, unit: unit, rel: rel})
+				}
 			}
 		}
 		if len(alts) == 0 {
-			continue // no single waypoint relieves this demand on arcA
+			continue // no 1-wp or 2-wp reroute relieves any hot arc for this demand
 		}
+		// Rank by relief, keep the top MaxCandPerDemand.
 		sort.Slice(alts, func(i, j int) bool { return alts[i].rel > alts[j].rel })
 		if len(alts) > gen.MaxCandPerDemand {
 			alts = alts[:gen.MaxCandPerDemand]
 		}
 		pair := Pair{D: d, T: t}
-		pair.Cand = append(pair.Cand, Candidate{Wps: cur, Load: scaleUnit(curUnit, vol)})
+		pair.Cand = append(pair.Cand, Candidate{Wps: cur, Load: curLoad})
 		for _, a := range alts {
-			pair.Cand = append(pair.Cand, Candidate{Wps: a.wps, Load: a.load})
+			pair.Cand = append(pair.Cand, Candidate{Wps: a.wps, Load: scaleUnit(a.unit, vol)})
 		}
 		p.Pairs = append(p.Pairs, pair)
 	}
-	_ = T
 	return p, nil
 }
 

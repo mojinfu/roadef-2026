@@ -104,7 +104,16 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 	lockedLoad := map[int]float64{}
 	var best *Result
 	for layer := 0; layer < opts.MaxPeel; layer++ {
-		res, load, err := pr.solveLayer(lockedLoad)
+		// Layer 1 models the true global first bit: z is floored by the max
+		// saturation of every immutable (frozen) cell.  If that floor is
+		// attained only by frozen arcs (no tracked arc reaches z*), the top
+		// tier is untouchable and later layers must be free to push the
+		// tracked arcs below it, so their z carries no floor.
+		zlb := 0.0
+		if layer == 0 {
+			zlb = pr.constantFloor()
+		}
+		res, load, err := pr.solveLayer(lockedLoad, zlb)
 		if err != nil {
 			return nil, err
 		}
@@ -117,19 +126,15 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 		}
 		// Peel: every still-active tracked arc whose saturation reaches the
 		// current optimum z is pinned at its attained load and excluded from
-		// the next layer's max.
-		nLocked := 0
+		// the next layer's max.  A layer whose optimum is reached only by the
+		// frozen background locks nothing and the peel simply moves on.
 		for i, a := range pr.tracked {
 			if _, ok := lockedLoad[a]; ok {
 				continue
 			}
 			if load[i]/pr.caps[i] >= res.ObjVal-1e-7 {
 				lockedLoad[a] = load[i]
-				nLocked++
 			}
-		}
-		if nLocked == 0 {
-			break // further layers would reproduce the same optimum
 		}
 	}
 	return best, nil
@@ -137,9 +142,10 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 
 // solveLayer builds and solves one peel layer of the selection MIP.
 // lockedLoad holds load caps for arcs already assigned to earlier layers
-// (their row becomes an absolute upper bound, no z).  It returns the result
-// and, per tracked arc, the load attained in the optimal solution.
-func (pr *Problem) solveLayer(lockedLoad map[int]float64) (*Result, []float64, error) {
+// (their row becomes an absolute upper bound, no z); zlb is the lower bound
+// of this layer's z (constantFloor for the first layer, 0 afterwards).  It
+// returns the result and, per tracked arc, the load attained in the optimum.
+func (pr *Problem) solveLayer(lockedLoad map[int]float64, zlb float64) (*Result, []float64, error) {
 	inst, m := pr.inst, pr.m
 
 	// Variable indexing: all candidate binaries, then one continuous z.
@@ -176,7 +182,7 @@ func (pr *Problem) solveLayer(lockedLoad map[int]float64) (*Result, []float64, e
 	}
 	vt[zIdx] = 'C'
 	ub[zIdx] = 1e30
-	lb[zIdx] = pr.constantFloor()
+	lb[zIdx] = zlb
 	obj[zIdx] = 1 // objective: minimise z (the current layer's max saturation)
 	if _, err := model.AddVars(obj, lb, ub, vt); err != nil {
 		return nil, nil, err
