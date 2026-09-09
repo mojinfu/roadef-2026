@@ -1,0 +1,7 @@
+# Gurobi license key file (sensitive; 30-day key, must not be committed)
+GURBILIENCES
+
+# Reference-oracle generated artefacts (reproducible from setA/setB + _pyref)
+_pyref/oracle/
+_pyref/*.json
+_pyref/*.txt
