@@ -18,6 +18,7 @@ import (
 	"tasr/internal/graph"
 	"tasr/internal/io"
 	"tasr/internal/model"
+	"tasr/internal/snap"
 )
 
 func main() {
@@ -26,6 +27,7 @@ func main() {
 	oracle := flag.String("oracle", "", "reference oracle text file to compare against")
 	dump := flag.String("dump", "", "write oracle-format output to this file")
 	writeSol := flag.String("write-srpaths", "", "write the (effective) solution to this srpaths file")
+	cost := flag.Bool("cost", false, "print per-transition Hamming costs and total (checker semantics)")
 	flag.Parse()
 
 	if *prefix == "" {
@@ -68,6 +70,13 @@ func main() {
 			}
 		}
 		fmt.Printf("  slot %d: MLU=%.12f  (rank %d)\n", t, maxSat, eval.RankInt(maxSat))
+	}
+
+	if *cost {
+		for t := 1; t < T; t++ {
+			fmt.Printf("  cost t=%d (t-1->t) = %d\n", t, snap.SolutionCostAt(inst, sol, t))
+		}
+		fmt.Printf("  total_cost = %d\n", snap.SolutionTotalCost(inst, sol))
 	}
 
 	// Optional dump / oracle comparison in the oracle text format.
