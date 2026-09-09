@@ -7,6 +7,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/csv"
 	"flag"
 	"fmt"
 	"os"
@@ -28,6 +29,7 @@ func main() {
 	dump := flag.String("dump", "", "write oracle-format output to this file")
 	writeSol := flag.String("write-srpaths", "", "write the (effective) solution to this srpaths file")
 	cost := flag.Bool("cost", false, "print per-transition Hamming costs and total (checker semantics)")
+	sprint := flag.String("sprint", "", "sprint loads_vector.csv to compare the sorted vector against")
 	flag.Parse()
 
 	if *prefix == "" {
@@ -79,6 +81,10 @@ func main() {
 		fmt.Printf("  total_cost = %d\n", snap.SolutionTotalCost(inst, sol))
 	}
 
+	if *sprint != "" {
+		compareSprint(*sprint, sat, inst)
+	}
+
 	// Optional dump / oracle comparison in the oracle text format.
 	text := oracleText(sat, m, T, inst)
 	if *dump != "" {
@@ -113,6 +119,80 @@ func oracleText(sat []float64, m, T int, inst *model.Instance) string {
 		fmt.Fprintf(&sb, "Q %d\n", eval.RankInt(desc[i]))
 	}
 	return sb.String()
+}
+
+// compareSprint prints the quantified gap of the current solution's sorted
+// vector against the sprint reference row for the same instance: how many
+// layers tie and where the first gap is.
+func compareSprint(path string, sat []float64, inst *model.Instance) {
+	f, err := os.Open(path)
+	if err != nil {
+		fatal(err)
+	}
+	defer f.Close()
+	rd := csv.NewReader(f)
+	rd.FieldsPerRecord = -1 // reference rows are shorter than the 4000-col header
+	recs, err := rd.ReadAll()
+	if err != nil {
+		fatal(err)
+	}
+	if len(recs) == 0 {
+		fatal(fmt.Errorf("sprint file empty"))
+	}
+	var ref []float64
+	for _, rec := range recs[1:] {
+		if len(rec) < 2 {
+			continue
+		}
+		if rec[0] != inst.Name {
+			continue
+		}
+		for _, tok := range rec[2:] {
+			tok = strings.TrimSpace(tok)
+			if tok == "" {
+				continue
+			}
+			v, err := strconv.ParseFloat(tok, 64)
+			if err != nil {
+				fatal(fmt.Errorf("sprint row %s: %q", inst.Name, tok))
+			}
+			ref = append(ref, v)
+		}
+		break
+	}
+	if ref == nil {
+		fatal(fmt.Errorf("no sprint row for %s", inst.Name))
+	}
+
+	desc := eval.SortedDesc(sat)
+	ours := eval.RankMatrix(desc)
+	n := len(ours)
+	if len(ref) < n {
+		n = len(ref)
+	}
+	tied := 0
+	for tied < n && int64(ref[tied]*1e6+0.5) == ours[tied] {
+		tied++
+	}
+	if tied == n && n == len(ref) && n == len(ours) {
+		fmt.Printf("  sprint compare: FULL TIE across %d layers\n", n)
+		return
+	}
+	layer := tied + 1
+	var rq int64
+	if layer <= len(ref) {
+		rq = int64(ref[layer-1]*1e6 + 0.5)
+	} else {
+		rq = -1 // reference ended: our vector has extra layers
+	}
+	var oq int64
+	if layer <= len(ours) {
+		oq = ours[layer-1]
+	} else {
+		oq = -1 // our vector ended
+	}
+	fmt.Printf("  sprint compare: tie %d/%d layers; first gap layer %d (%d vs %d)\n",
+		tied, len(ref), layer, oq, rq)
 }
 
 func compareOracle(path, goText string, sat []float64, m, T int) {

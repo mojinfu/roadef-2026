@@ -1,6 +1,7 @@
 package mip
 
 import (
+	"fmt"
 	"os"
 	"sort"
 
@@ -86,13 +87,59 @@ func Build(p *Pool, sn *snap.Snap) (*Problem, error) {
 	return prob, nil
 }
 
-// Solve runs the MIP: pick exactly one candidate per pair so that the global
-// maximum saturation (first bit) is minimised, respecting every affected
-// transition's Hamming budget.
+// Solve runs the lexicographic peeling MIP.  Layer 1 picks exactly one
+// candidate per pair so that the global maximum saturation (first bit) over
+// the tracked arcs is minimised (one shared continuous z).  Each later layer
+// locks the arcs that attained the previous optimum at their attained load
+// (upper bound only, so they may still drop) and minimises a fresh z over the
+// remaining arcs, pushing down the second, third, ... entries of the vector in
+// turn.  Per-pair convexity and per-transition Hamming-budget rows are present
+// in every layer.
 func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 	if opts.MaxPeel <= 0 {
 		opts.MaxPeel = 1
 	}
+	// lockedLoad[a] caps the load of a tracked arc that was peeled into an
+	// earlier layer; its load may only decrease from that point onward.
+	lockedLoad := map[int]float64{}
+	var best *Result
+	for layer := 0; layer < opts.MaxPeel; layer++ {
+		res, load, err := pr.solveLayer(lockedLoad)
+		if err != nil {
+			return nil, err
+		}
+		if res == nil || !res.HasValue || len(res.Choices) == 0 {
+			return res, nil
+		}
+		best = res
+		if layer == opts.MaxPeel-1 {
+			break
+		}
+		// Peel: every still-active tracked arc whose saturation reaches the
+		// current optimum z is pinned at its attained load and excluded from
+		// the next layer's max.
+		nLocked := 0
+		for i, a := range pr.tracked {
+			if _, ok := lockedLoad[a]; ok {
+				continue
+			}
+			if load[i]/pr.caps[i] >= res.ObjVal-1e-7 {
+				lockedLoad[a] = load[i]
+				nLocked++
+			}
+		}
+		if nLocked == 0 {
+			break // further layers would reproduce the same optimum
+		}
+	}
+	return best, nil
+}
+
+// solveLayer builds and solves one peel layer of the selection MIP.
+// lockedLoad holds load caps for arcs already assigned to earlier layers
+// (their row becomes an absolute upper bound, no z).  It returns the result
+// and, per tracked arc, the load attained in the optimal solution.
+func (pr *Problem) solveLayer(lockedLoad map[int]float64) (*Result, []float64, error) {
 	inst, m := pr.inst, pr.m
 
 	// Variable indexing: all candidate binaries, then one continuous z.
@@ -101,19 +148,22 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 		nX += len(prr.Cand)
 	}
 	zIdx := nX
+	if nX == 0 {
+		return nil, nil, fmt.Errorf("mip: no candidate variables")
+	}
 
 	env, err := gurobi.EnvNew()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer env.Free()
 	model, err := env.NewModel("mip")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer model.Free()
 	if err := model.SetIntAttr("ModelSense", gurobi.ModelSenseMinimize); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	obj := make([]float64, nX+1)
@@ -127,9 +177,9 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 	vt[zIdx] = 'C'
 	ub[zIdx] = 1e30
 	lb[zIdx] = pr.constantFloor()
-	obj[zIdx] = 1 // objective: minimise z
+	obj[zIdx] = 1 // objective: minimise z (the current layer's max saturation)
 	if _, err := model.AddVars(obj, lb, ub, vt); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Base variable index of each pair.
@@ -169,8 +219,11 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 		addRow(cols, vals, '=', 1)
 	}
 
-	// Arc rows: currentLoad + sum delta*x <= cap*z
-	//   -> sum delta*x - cap*z <= -currentLoad.
+	// Arc rows.  Current total load on arc a (slot pr.t) is pr.base[a]; each
+	// chosen candidate changes it by delta, so the new load is
+	//   base[a] + sum(delta * x).
+	// Unlocked arc:  base + sum(delta*x) <= cap*z  ->  sum(delta*x) - cap*z <= -base.
+	// Locked arc:    base + sum(delta*x) <= lockedLoad  ->  sum(delta*x) <= lockedLoad - base.
 	for ri, a := range pr.tracked {
 		var cols []int
 		var vals []float64
@@ -184,9 +237,13 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 				}
 			}
 		}
-		cols = append(cols, zIdx)
-		vals = append(vals, -pr.caps[ri])
-		addRow(cols, vals, '<', -pr.base[ri])
+		if capLoad, ok := lockedLoad[a]; ok {
+			addRow(cols, vals, '<', capLoad-pr.base[ri])
+		} else {
+			cols = append(cols, zIdx)
+			vals = append(vals, -pr.caps[ri])
+			addRow(cols, vals, '<', -pr.base[ri])
+		}
 	}
 
 	// Hamming-budget rows for every affected transition.
@@ -220,22 +277,22 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 	cbeg = append(cbeg, int32(len(cind)))
 
 	if err := model.AddConstrs(cbeg, cind, cval, sense, rhs); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := model.Update(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if lp := os.Getenv("TASR_GRB_LP"); lp != "" {
 		if err := model.Write(lp); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 	if err := model.Optimize(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	status, err := model.IntAttr("Status")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	res := &Result{Status: status}
 	if status == gurobi.StatusOptimal || status == gurobi.StatusTimeLimit ||
@@ -243,12 +300,12 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 		res.HasValue = true
 		objVal, err := model.DblAttr("ObjVal")
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		res.ObjVal = objVal
 		xv := make([]float64, nX)
 		if err := model.X(xv); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for i, prr := range pr.pairs {
 			best := 0
@@ -259,8 +316,21 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 			}
 			res.Choices = append(res.Choices, Choice{D: prr.D, T: prr.T, Wps: prr.Cand[best].Wps})
 		}
+		// Attained load per tracked arc at this optimum.
+		load := make([]float64, len(pr.tracked))
+		for ri, a := range pr.tracked {
+			l := pr.base[ri]
+			for i, prr := range pr.pairs {
+				d := pr.delta[i]
+				for k := range prr.Cand {
+					l += d[k*m+a] * xv[base[i]+k]
+				}
+			}
+			load[ri] = l
+		}
+		return res, load, nil
 	}
-	return res, nil
+	return res, nil, nil
 }
 
 // transDelta returns, for transition tt, the vector over candidates of the

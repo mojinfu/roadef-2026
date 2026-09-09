@@ -22,6 +22,7 @@ import (
 func main() {
 	prefix := flag.String("prefix", "", "instance prefix, e.g. setA/setA-01")
 	out := flag.String("out", "", "write accepted srpaths to this file")
+	peel := flag.Int("peel", 8, "lex peel depth (layers of z)")
 	flag.Parse()
 	if *prefix == "" {
 		fmt.Fprintln(os.Stderr, "usage: mipround -prefix setA/setA-01 [-out sol.json]")
@@ -80,7 +81,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	res, err := prob.Solve(mip.SolveOptions{MaxPeel: 1})
+	res, err := prob.Solve(mip.SolveOptions{MaxPeel: *peel})
 	if err != nil {
 		fatal(err)
 	}
