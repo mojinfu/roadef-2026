@@ -1,11 +1,20 @@
-// Package mip implements the M2 decompose-round: it extracts the demands that
-// load a hot arc, generates alternative waypoint routings that relieve it, and
-// solves a small Gurobi MIP that picks one alternative per demand to minimise
-// the global maximum saturation (first bit), subject to the Hamming budget.
+// Package mip implements the decompose-round of the V1.0 solver: it extracts
+// the demands that load a set of hot (slot, arc) cells, generates alternative
+// waypoint routings that relieve them, and solves a small Gurobi MIP that picks
+// one alternative per demand to minimise the global truncated-lex saturation
+// vector, subject to the Hamming budget.
 //
-// The MIP works over one time slot t.  Arc loads of every (demand, candidate)
-// at that slot are precomputed exactly with the ECMP engine (snap.UnitRoute),
-// so the model is a pure 0-1 selection problem with no embedded shortest paths.
+// A candidate is an *atomic move* for one demand: it writes one waypoint list
+// to a chosen subset of the pool's time slots (a single slot, or a twin pair of
+// adjacent slots that both get the same waypoints so the inter-slot Hamming
+// distance stays 0).  Because every demand is moved by at most one candidate
+// per round, the transition Hamming cost of each candidate is a precomputed
+// scalar against the *current* other-slot routings, so the budget rows stay
+// linear and exact (no bilinear cross-slot coupling).
+//
+// The MIP works over precomputed ECMP loads, so it is a pure 0-1 selection
+// problem with no embedded shortest paths.  Candidates that leave a slot
+// unmoved keep that slot's current contribution (delta 0).
 package mip
 
 import (
@@ -17,63 +26,117 @@ import (
 	"tasr/internal/snap"
 )
 
-// Candidate is one waypoint choice for a (d, t) pair.  Load[a] is the load this
-// candidate puts on arc a at the focus slot (volume * ECMP fraction), length g.M.
+// HotCell is one (time slot, arc) saturation cell to relieve.
+type HotCell struct {
+	Slot int
+	Arc  int
+}
+
+// Candidate is one atomic waypoint move for a (demand, pool).  Wps is written
+// to every slot whose pool position has Move true; Load holds the demand's
+// contribution on every pool slot (length m*len(pool.Slots), block per slot),
+// using the *new* path on moved slots and the *current* contribution elsewhere
+// so unmoved blocks contribute zero delta.
 type Candidate struct {
 	Wps  []int
+	Move []bool
 	Load []float64
 }
 
-// Pair groups the alternatives of one (d, t).
+// Pair groups the atomic alternatives of one demand.
 type Pair struct {
 	D    int
-	T    int
-	Cand []Candidate // index 0 is always the current routing
+	Cand []Candidate // index 0 is always the current routing (Move all false)
 }
 
-// Pool is the candidate pool for one focus slot.
+// Pool is the candidate pool over one universe of time slots.
 type Pool struct {
 	inst  *model.Instance
 	g     *graph.Graph
 	snap  *snap.Snap
-	t     int
 	m     int
+	T     int
+	Slots []int // time slots in this pool's universe (sorted ascending)
 	Pairs []Pair
 }
 
-// Generator builds a pool for the given focus slot and hot arc position.
+// Generator builds a pool for the given hot cells.
 type Generator struct {
 	Inst             *model.Instance
 	G                *graph.Graph
 	Snap             *snap.Snap
-	MaxCandPerDemand int     // cap of alternatives kept per demand (excluding current)
-	FracEps          float64 // treat frac below this as zero on the hot arc
+	MaxCandPerDemand int     // cap of alternatives kept per demand per family
+	FracEps          float64 // treat load below this as zero on a hot cell
+	Wp2Cap           int     // max 2-waypoint (w1,w2) evaluations per family
 }
 
-// Build returns the pool of demands whose current routing at slot t loads arcA,
-// together with single-waypoint alternatives that strictly reduce that load.
+// defaultWp2Cap bounds the 2-waypoint enumeration.  The full search space is
+// C(n-2,2) waypoint pairs per demand per family, which is fine up to roughly a
+// hundred nodes but explodes quadratically on the largest setA instances
+// (n up to 400 -> ~80k pairs per family, times the many demands that load a
+// saturated hot arc).  When the pair count exceeds the cap the scan is
+// stride-sampled evenly over the colexicographic order so the pool still sees a
+// representative spread of detours at a bounded cost.  Pairs <= cap scan
+// identically to an uncapped run, so small instances are unaffected.
+const defaultWp2Cap = 8000
+
+// Build returns a single-slot pool relieving one hot arc at slot t.
 func (gen *Generator) Build(t, arcA int) (*Pool, error) {
-	return gen.BuildKeys(t, []int{arcA})
+	return gen.BuildCells([]HotCell{{Slot: t, Arc: arcA}})
 }
 
-// BuildKeys returns the pool of demands whose current routing at slot t loads
-// at least one of the hot arcs, with single-waypoint alternatives that strictly
-// reduce the load of at least one hot arc.  Candidates are deduplicated across
-// hot arcs and ranked by the largest relief they give to any one of them.
-func (gen *Generator) BuildKeys(t int, hotArcs []int) (*Pool, error) {
+// BuildCells returns the pool of demands whose current routing loads at least
+// one hot cell, with single-slot and twin-pair alternatives that strictly
+// reduce the load of at least one hot cell.
+//
+// The pool universe is the hot slots extended by their immediate neighbours so
+// that a twin (same waypoints on both endpoints of a transition, distance 0)
+// can be offered for the cheapest kind of relief.  Candidates are generated per
+// demand and family (each hot slot individually, plus each adjacent pair that
+// the demand is active on), deduplicated inside a family, ranked by the largest
+// relief they give to any hot cell, and truncated to MaxCandPerDemand each.
+func (gen *Generator) BuildCells(hots []HotCell) (*Pool, error) {
 	if gen.MaxCandPerDemand <= 0 {
 		gen.MaxCandPerDemand = 8
 	}
 	if gen.FracEps <= 0 {
 		gen.FracEps = 1e-9
 	}
-	if len(hotArcs) == 0 {
-		return nil, fmt.Errorf("mip: BuildKeys with empty hot-arc set")
+	if gen.Wp2Cap <= 0 {
+		gen.Wp2Cap = defaultWp2Cap
+	}
+	if len(hots) == 0 {
+		return nil, fmt.Errorf("mip: BuildCells with empty hot-cell set")
 	}
 	inst, g, sn := gen.Inst, gen.G, gen.Snap
-	m := g.M
-	p := &Pool{inst: inst, g: g, snap: sn, t: t, m: m}
+	m, T := g.M, inst.NSlots
 
+	// Universe = hot slots plus their immediate transition neighbours.
+	univ := map[int]bool{}
+	for _, h := range hots {
+		univ[h.Slot] = true
+		if h.Slot > 0 {
+			univ[h.Slot-1] = true
+		}
+		if h.Slot+1 < T {
+			univ[h.Slot+1] = true
+		}
+	}
+	var slots []int
+	for s := range univ {
+		slots = append(slots, s)
+	}
+	sort.Ints(slots)
+	posOf := make(map[int]int, len(slots))
+	for i, s := range slots {
+		posOf[s] = i
+	}
+	hotBySlot := map[int][]int{}
+	for _, h := range hots {
+		hotBySlot[h.Slot] = append(hotBySlot[h.Slot], h.Arc)
+	}
+
+	p := &Pool{inst: inst, g: g, snap: sn, m: m, T: T, Slots: slots}
 	keyOf := func(w []int) string {
 		b := make([]byte, 0, len(w)*4)
 		for _, x := range w {
@@ -85,49 +148,77 @@ func (gen *Generator) BuildKeys(t int, hotArcs []int) (*Pool, error) {
 	n := inst.NNodes()
 	for d := 0; d < inst.NDemands(); d++ {
 		dem := &inst.Demands[d]
-		vol := dem.Volume[t]
-		if vol == 0.0 {
-			continue
-		}
-		cur := append([]int(nil), sn.GetWaypoints(d, t)...)
-		curUnit, err := sn.UnitRoute(d, t, cur)
-		if err != nil {
-			continue // current routing somehow disconnected: skip
-		}
-		curLoad := scaleUnit(curUnit, vol)
 
-		// Which hot arcs does this demand currently load?
-		loadsHot := false
-		for _, ha := range hotArcs {
-			if curLoad[ha] > gen.FracEps {
-				loadsHot = true
-				break
+		// Current per-slot contribution of this demand inside the universe.
+		curWps := map[int][]int{}
+		curUnit := map[int][]float64{}
+		curLoad := map[int][]float64{}
+		vol := map[int]float64{}
+		active := false
+		for _, s := range slots {
+			v := dem.Volume[s]
+			if v == 0.0 {
+				continue
 			}
+			w := sn.GetWaypoints(d, s)
+			u, err := sn.UnitRoute(d, s, w)
+			if err != nil {
+				continue // current routing disconnected: skip this demand
+			}
+			curWps[s] = w
+			curUnit[s] = u
+			curLoad[s] = scaleUnit(u, v)
+			vol[s] = v
+			active = true
 		}
-		if !loadsHot {
+		if !active {
 			continue
 		}
 
-		reliefOn := func(unit []float64, ha int) float64 {
-			return curLoad[ha] - vol*unit[ha]
-		}
-		bestRel := func(unit []float64) float64 {
-			best := -1.0
-			for _, ha := range hotArcs {
-				if r := reliefOn(unit, ha); r > best {
-					best = r
+		// Which hot cells does this demand load?
+		loadsHot := map[int]bool{}
+		anyHot := false
+		for _, s := range slots {
+			cl := curLoad[s]
+			if cl == nil {
+				continue
+			}
+			for _, ha := range hotBySlot[s] {
+				if cl[ha] > gen.FracEps {
+					loadsHot[s] = true
+					anyHot = true
+					break
 				}
 			}
-			return best
+		}
+		if !anyHot {
+			continue
 		}
 
-		type alt struct {
-			wps  []int
-			unit []float64
-			rel  float64
+		// Shared helper: base block slice of the demand's current contribution
+		// at a slot (nil -> zero vector).  Unmoved blocks alias these slices,
+		// which are never mutated, so aliasing is safe.
+		blk := func(s int, into []float64) []float64 {
+			base := posOf[s] * m
+			if cl := curLoad[s]; cl != nil {
+				copy(into[base:base+m], cl)
+			}
+			return into[base : base+m]
 		}
-		var alts []alt
-		seen := map[string]bool{}
+
+		mkLoad := func(moved []int) []float64 {
+			out := make([]float64, len(slots)*m)
+			for _, s := range slots {
+				blk(s, out)
+			}
+			return out
+		}
+
+		cands := []Candidate{{
+			Move: make([]bool, len(slots)),
+			Load: mkLoad(nil),
+		}}
+		// The whole network node set is the waypoint search space.
 		var nodes []int
 		for w := 0; w < n; w++ {
 			if w == dem.Source || w == dem.Target {
@@ -135,53 +226,161 @@ func (gen *Generator) BuildKeys(t int, hotArcs []int) (*Pool, error) {
 			}
 			nodes = append(nodes, w)
 		}
-		// Single-waypoint reroutes.
-		for _, w := range nodes {
-			wps := []int{w}
-			k := keyOf(wps)
-			seen[k] = true
-			unit, err := sn.UnitRoute(d, t, wps)
-			if err != nil {
-				continue
+
+		appendMove := func(movedSlots []int, wps []int, unitBySlot map[int][]float64) {
+			cand := Candidate{
+				Wps:  append([]int(nil), wps...),
+				Move: make([]bool, len(slots)),
+				Load: mkLoad(nil),
 			}
-			if rel := bestRel(unit); rel > gen.FracEps {
-				alts = append(alts, alt{wps: wps, unit: unit, rel: rel})
+			for _, s := range movedSlots {
+				cand.Move[posOf[s]] = true
+				u := unitBySlot[s]
+				if u == nil {
+					continue
+				}
+				copy(cand.Load[posOf[s]*m:posOf[s]*m+m], scaleUnit(u, vol[s]))
 			}
+			cands = append(cands, cand)
 		}
-		// Two-waypoint reroutes (unordered pairs).  A single waypoint cannot
-		// avoid an arc that lies on every shortest path into an intermediate
-		// node; splitting the path twice can detour around such a cut.
-		for i := 0; i < len(nodes); i++ {
-			for j := i + 1; j < len(nodes); j++ {
-				wps := []int{nodes[i], nodes[j]}
+
+		// bestRel of a per-slot unit vector against the arcs hot at that slot.
+		relief := func(slot int, unit []float64, targetArcs []int) float64 {
+			best := -1.0
+			for _, ha := range targetArcs {
+				if r := curLoad[slot][ha] - vol[slot]*unit[ha]; r > best {
+					best = r
+				}
+			}
+			return best
+		}
+
+		// Enumerate 1-waypoint and 2-waypoint lists and keep those with relief.
+		type alt struct {
+			wps []int
+			rel float64
+		}
+		enumerate := func(relFor func(wps []int) float64, unitAt func(wps []int) ([]float64, error)) []alt {
+			var alts []alt
+			seen := map[string]bool{}
+			try := func(wps []int) {
 				k := keyOf(wps)
 				if seen[k] {
-					continue
+					return
 				}
 				seen[k] = true
-				unit, err := sn.UnitRoute(d, t, wps)
-				if err != nil {
-					continue
-				}
-				if rel := bestRel(unit); rel > gen.FracEps {
-					alts = append(alts, alt{wps: wps, unit: unit, rel: rel})
+				if rel := relFor(wps); rel > gen.FracEps {
+					alts = append(alts, alt{wps: wps, rel: rel})
 				}
 			}
+			for _, w := range nodes {
+				try([]int{w})
+			}
+			pairs := len(nodes) * (len(nodes) - 1) / 2
+			step := 1
+			if pairs > gen.Wp2Cap {
+				// Stride-sample so an over-cap scan still covers the pair space
+				// evenly instead of exhausting it.  cnt counts every pair, so
+				// step spreads the ~Wp2Cap evaluations across all (i,j).
+				step = (pairs + gen.Wp2Cap - 1) / gen.Wp2Cap
+			}
+			cnt := 0
+			for i := 0; i < len(nodes); i++ {
+				for j := i + 1; j < len(nodes); j++ {
+					cnt++
+					if step > 1 && cnt%step != 0 {
+						continue
+					}
+					try([]int{nodes[i], nodes[j]})
+				}
+			}
+			sort.Slice(alts, func(i, j int) bool { return alts[i].rel > alts[j].rel })
+			if len(alts) > gen.MaxCandPerDemand {
+				alts = alts[:gen.MaxCandPerDemand]
+			}
+			return alts
 		}
-		if len(alts) == 0 {
-			continue // no 1-wp or 2-wp reroute relieves any hot arc for this demand
+
+		// Single-slot families: reroute the slot whose hot cell we relieve.
+		for _, s := range slots {
+			if !loadsHot[s] {
+				continue
+			}
+			target := hotBySlot[s]
+			alts := enumerate(
+				func(wps []int) float64 {
+					u, err := sn.UnitRoute(d, s, wps)
+					if err != nil {
+						return -1
+					}
+					return relief(s, u, target)
+				},
+				func(wps []int) ([]float64, error) { return sn.UnitRoute(d, s, wps) },
+			)
+			for _, a := range alts {
+				u, _ := sn.UnitRoute(d, s, a.wps)
+				appendMove([]int{s}, a.wps, map[int][]float64{s: u})
+			}
 		}
-		// Rank by relief, keep the top MaxCandPerDemand.
-		sort.Slice(alts, func(i, j int) bool { return alts[i].rel > alts[j].rel })
-		if len(alts) > gen.MaxCandPerDemand {
-			alts = alts[:gen.MaxCandPerDemand]
+
+		// Twin families: same waypoints on both endpoints of an adjacent
+		// (u, v = u+1) pair inside the universe.  The two slots then have
+		// identical node-pair chains, so their mutual Hamming cost stays 0 and
+		// the relief is budget-free.
+		for _, u := range slots {
+			v := u + 1
+			if v >= T || !univ[v] {
+				continue
+			}
+			if vol[u] == 0.0 || vol[v] == 0.0 {
+				continue
+			}
+			if !loadsHot[u] && !loadsHot[v] {
+				continue
+			}
+			var target []HotCell
+			for _, h := range hots {
+				if (h.Slot == u || h.Slot == v) && loadsHot[h.Slot] {
+					target = append(target, h)
+				}
+			}
+			alts := enumerate(
+				func(wps []int) float64 {
+					uA, errA := sn.UnitRoute(d, u, wps)
+					uB, errB := sn.UnitRoute(d, v, wps)
+					if errA != nil || errB != nil {
+						return -1
+					}
+					best := -1.0
+					for _, h := range target {
+						cl := curLoad[h.Slot]
+						var uu []float64
+						if h.Slot == u {
+							uu = uA
+						} else {
+							uu = uB
+						}
+						if r := cl[h.Arc] - vol[h.Slot]*uu[h.Arc]; r > best {
+							best = r
+						}
+					}
+					return best
+				},
+				func(wps []int) ([]float64, error) {
+					return sn.UnitRoute(d, u, wps)
+				},
+			)
+			for _, a := range alts {
+				uA, _ := sn.UnitRoute(d, u, a.wps)
+				uB, _ := sn.UnitRoute(d, v, a.wps)
+				appendMove([]int{u, v}, a.wps, map[int][]float64{u: uA, v: uB})
+			}
 		}
-		pair := Pair{D: d, T: t}
-		pair.Cand = append(pair.Cand, Candidate{Wps: cur, Load: curLoad})
-		for _, a := range alts {
-			pair.Cand = append(pair.Cand, Candidate{Wps: a.wps, Load: scaleUnit(a.unit, vol)})
+
+		if len(cands) <= 1 {
+			continue // no 1-wp or 2-wp move relieves any hot cell for this demand
 		}
-		p.Pairs = append(p.Pairs, pair)
+		p.Pairs = append(p.Pairs, Pair{D: d, Cand: cands})
 	}
 	return p, nil
 }

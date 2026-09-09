@@ -6,3 +6,17 @@ _pyref/oracle/
 _pyref/*.json
 _pyref/*.txt
 _pyref/battery/
+
+# Solver build outputs + scratch bench runs (rebuilt / re-run on demand)
+_pyref/*.exe
+_pyref/*.exe~
+_pyref/bench_m3/
+_pyref/bench_m3b/
+_pyref/bench_m4/
+_pyref/bench_m4_long/
+_pyref/*.log
+
+# Ad-hoc helper scripts superseded by cmd/bench (keep the Go driver tracked)
+_pyref/bench_setA.py
+_pyref/bench_setA.sh
+_pyref/killbench.ps1

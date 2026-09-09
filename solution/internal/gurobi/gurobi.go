@@ -41,6 +41,7 @@ var (
 	procAddVars       *syscall.LazyProc
 	procAddConstrs    *syscall.LazyProc
 	procSetIntParam   *syscall.LazyProc
+	procSetParam      *syscall.LazyProc
 	procSetIntAttr    *syscall.LazyProc
 	procSetDblAttrArr *syscall.LazyProc
 	procGetIntAttr    *syscall.LazyProc
@@ -90,6 +91,7 @@ func load() error {
 			{"GRBaddvars", &procAddVars},
 			{"GRBaddconstrs", &procAddConstrs},
 			{"GRBsetintparam", &procSetIntParam},
+			{"GRBsetparam", &procSetParam},
 			{"GRBsetintattr", &procSetIntAttr},
 			{"GRBsetdblattrarray", &procSetDblAttrArr},
 			{"GRBgetintattr", &procGetIntAttr},
@@ -155,6 +157,15 @@ func EnvNew() (*Env, error) {
 // SetIntParam sets an integer environment parameter (e.g. OutputFlag).
 func (e *Env) SetIntParam(name string, v int) error {
 	return call(procSetIntParam, "GRBsetintparam", uintptr(e.p), uintptr(unsafe.Pointer(cstr(name))), uintptr(int32(v)))
+}
+
+// SetParam sets an environment parameter from a string value.  This is the
+// generic GRBsetparam, which accepts numeric parameters (TimeLimit, MIPGap,
+// ...) as their string form and avoids passing doubles through the syscall
+// boundary (the Windows x64 ABI passes floats in XMM registers).
+func (e *Env) SetParam(name, value string) error {
+	return call(procSetParam, "GRBsetparam", uintptr(e.p),
+		uintptr(unsafe.Pointer(cstr(name))), uintptr(unsafe.Pointer(cstr(value))))
 }
 
 // NewModel builds an empty named model in env.

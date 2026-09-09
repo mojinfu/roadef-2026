@@ -95,10 +95,11 @@ func main() {
 	trial := bestSol.Copy()
 	changed := 0
 	for _, c := range res.Choices {
-		// Only materialise when the candidate actually differs from current.
-		if !equalWps(trial.Waypoints[c.D][c.T], c.Wps) {
-			trial.Set(c.D, c.T, c.Wps)
-			changed++
+		for _, op := range c.Apply {
+			if !equalWps(trial.Waypoints[c.D][op.Slot], op.Wps) {
+				trial.Set(c.D, op.Slot, op.Wps)
+				changed++
+			}
 		}
 	}
 	fmt.Printf("  changed (d,t) pairs: %d\n", changed)

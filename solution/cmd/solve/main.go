@@ -19,6 +19,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"tasr/internal/ecmp"
 	"tasr/internal/eval"
@@ -37,6 +38,8 @@ func main() {
 	peel := flag.Int("peel", 6, "lex peel depth per MIP")
 	failLimit := flag.Int("fail-limit", 2, "failed attempts before a seed is marked done")
 	hotK := flag.Int("hot-k", 6, "number of hot arcs of the focus slot decomposed together")
+	wallSec := flag.Int("wall-sec", 0, "stop the round loop after this many seconds (0 = unlimited)")
+	mipSec := flag.Float64("mip-sec", 20, "per peel-layer Gurobi time cap in seconds (0 = solve to completion)")
 	flag.Parse()
 	if *prefix == "" {
 		fmt.Fprintln(os.Stderr, "usage: solve -prefix setA/setA-01 [-out sol.json] [-sprint loads_vector.csv]")
@@ -67,8 +70,16 @@ func main() {
 	accepted, rejected := 0, 0
 	why := map[string]int{}
 	var poolSum, candSum, solveCount int
+	deadline := time.Time{}
+	if *wallSec > 0 {
+		deadline = time.Now().Add(time.Duration(*wallSec) * time.Second)
+	}
 
 	for r := 1; r <= *rounds; r++ {
+		if !deadline.IsZero() && time.Now().After(deadline) {
+			fmt.Printf("  wall-sec limit %d reached after %d rounds\n", *wallSec, r-1)
+			break
+		}
 		keys := bestSnap.RankKeys(done)
 		if len(keys) == 0 {
 			break
@@ -78,19 +89,15 @@ func main() {
 			// All remaining non-done keys carry no load; nothing left to relieve.
 			break
 		}
-		// Focus the slot of the global hottest key; decompose its top hot arcs.
-		focusT := keys[0].T
+		// Decompose the global hottest cells (both slots when T=2), so the pool
+		// can relieve a slot-1 hot cell with a budget-free twin reroute as well
+		// as a single-slot divergence.
 		var hots []snap.Key
-		var hotArc []int
 		for _, k := range keys {
-			if k.T != focusT {
-				continue
-			}
 			if sat[k.A*T+k.T] <= 0 {
 				break
 			}
 			hots = append(hots, k)
-			hotArc = append(hotArc, k.A)
 			if len(hots) >= *hotK {
 				break
 			}
@@ -99,15 +106,12 @@ func main() {
 			break
 		}
 		if debug(r) {
-			arcs := make([]int, len(hots))
-			for i := range hots {
-				arcs[i] = hots[i].A
-			}
-			fmt.Printf("round %d: focus slot=%d arcs=%v sats=[%.4f..%.4f] done=%d\n",
-				r, focusT, arcs, sat[hots[len(hots)-1].A*T+focusT], sat[hots[0].A*T+focusT], len(done))
+			fmt.Printf("round %d: hot cells=%v sat=[%.4f..%.4f] done=%d\n",
+				r, hots, sat[hots[len(hots)-1].A*T+hots[len(hots)-1].T],
+				sat[hots[0].A*T+hots[0].T], len(done))
 		}
 
-		// Mark one rejected round against every hot arc of the focus.
+		// Mark one rejected round against every hot cell.
 		markFail := func() {
 			for _, k := range hots {
 				fail[k]++
@@ -118,10 +122,19 @@ func main() {
 			rejected++
 		}
 
+		hc := make([]mip.HotCell, len(hots))
+		for i, k := range hots {
+			hc[i] = mip.HotCell{Slot: k.T, Arc: k.A}
+		}
 		gen := &mip.Generator{Inst: inst, G: g, Snap: bestSnap, MaxCandPerDemand: 12}
-		pool, err := gen.BuildKeys(focusT, hotArc)
+		tPoolStart := time.Now()
+		pool, err := gen.BuildCells(hc)
 		if err != nil {
 			fatal(err)
+		}
+		tPool := time.Since(tPoolStart).Seconds()
+		if timing() && debug(r) {
+			fmt.Printf("    round %d pool %d pairs in %.2fs\n", r, len(pool.Pairs), tPool)
 		}
 		if len(pool.Pairs) == 0 {
 			why["no-pool"]++
@@ -138,9 +151,26 @@ func main() {
 			candSum += len(pr.Cand)
 		}
 		solveCount++
-		res, err := prob.Solve(mip.SolveOptions{MaxPeel: *peel})
+		limit := time.Duration(*mipSec * float64(time.Second))
+		// When a wall deadline is set, trim the per-layer cap so one round can
+		// not run far past it (the loop re-checks the deadline each round).
+		if !deadline.IsZero() && *mipSec > 0 {
+			remain := time.Until(deadline)
+			if rem := remain / time.Duration(*peel+1); rem < limit {
+				limit = rem
+			}
+			if limit <= 0 {
+				fmt.Printf("  wall-sec limit %d reached after %d rounds\n", *wallSec, r-1)
+				break
+			}
+		}
+		tMipStart := time.Now()
+		res, err := prob.Solve(mip.SolveOptions{MaxPeel: *peel, TimeLimit: limit})
 		if err != nil {
 			fatal(err)
+		}
+		if timing() && debug(r) {
+			fmt.Printf("    round %d mip %.2fs status=%d\n", r, time.Since(tMipStart).Seconds(), res.Status)
 		}
 		if !res.HasValue || len(res.Choices) == 0 {
 			// infeasible / not-proven / no candidate selection
@@ -152,14 +182,16 @@ func main() {
 			continue
 		}
 
-		// Materialise the chosen waypoints on a trial solution.
+		// Materialise the chosen atomic moves on a trial solution.
 		cur := bestSnap.Solution()
 		trial := cur.Copy()
 		changed := 0
 		for _, c := range res.Choices {
-			if !equalWps(cur.Waypoints[c.D][c.T], c.Wps) {
-				trial.Set(c.D, c.T, c.Wps)
-				changed++
+			for _, op := range c.Apply {
+				if !equalWps(cur.Waypoints[c.D][op.Slot], op.Wps) {
+					trial.Set(c.D, op.Slot, op.Wps)
+					changed++
+				}
 			}
 		}
 		if changed == 0 {
@@ -188,9 +220,9 @@ func main() {
 			continue
 		}
 
-		// Accept.  Any move proves the involved arcs are movable, so their
+		// Accept.  Any move proves the involved cells are movable, so their
 		// failure memory is void; a first-bit improvement voids every prior
-		// "this arc cannot be moved" conclusion.
+		// "this cell cannot be moved" conclusion.
 		oldFirst := bestFirst
 		bestSnap = trialSnap
 		bestDesc = trialDesc
@@ -204,8 +236,8 @@ func main() {
 			done = map[snap.Key]bool{}
 			fail = map[snap.Key]int{}
 		}
-		fmt.Printf("  round %d ACCEPT: first-bit rank %d -> %d  total_cost=%d changed=%d focus=(t=%d)\n",
-			r, oldFirst, bestFirst, bestSnap.TotalCost(), changed, focusT)
+		fmt.Printf("  round %d ACCEPT: first-bit rank %d -> %d  total_cost=%d changed=%d hots=%d\n",
+			r, oldFirst, bestFirst, bestSnap.TotalCost(), changed, len(hots))
 		if debug(r) {
 			fmt.Printf("    top raw=%.9f  second raw=%.9f\n", bestDesc[0], bestDesc[1])
 		}
@@ -227,6 +259,8 @@ func main() {
 	}
 
 	fin := bestSnap.Solution()
+	fmt.Printf("RESULT %s accepted=%d firstbit=%d total_cost=%d budget_ok=%v\n",
+		inst.Name, accepted, bestFirst, bestSnap.TotalCost(), bestSnap.BudgetOK())
 	if *sprint != "" {
 		compareSprint(*sprint, bestDesc, inst)
 	}
@@ -242,6 +276,11 @@ func main() {
 func debug(r int) bool {
 	v, err := strconv.Atoi(os.Getenv("TASR_SOLVE_VERBOSE"))
 	return err == nil && v > 0 && r%max(1, v) == 0
+}
+
+// timing turns on per-round pool/MIP elapsed prints (needs verbose too).
+func timing() bool {
+	return os.Getenv("TASR_TIMING") == "1"
 }
 
 func max(a, b int) int {
