@@ -1,0 +1,25 @@
+{
+  "experiment": "2026-09-10_01_sticky_setA_noreg",
+  "milestone": "M4c",
+  "date": "2026-09-10",
+  "branch": "SOLUTION",
+  "commit": "d9d8b7a",
+  "dirty": true,
+  "code_state": "d9d8b7a + uncommitted: cmd/solve/main.go sticky adaptive anchor (even rounds hot if rem>=8 else early min-slot); internal/mip/pool_sticky.go override run semantics; cmd/bench + cmd/diffsol drivers; bench binaries runs_sticky_ab/solve.exe (twin+min-anchor sticky) and solve_ad.exe (adaptive sticky)",
+  "solver": "V1.0 Go Gurobi-MIP decomposition outer loop (cmd/solve): global hot-cell decompose (hot-k=6), per-demand waypoint candidates, lexicographic peeling MIP (peel=6), accept only on real truncated-lex improvement, Hamming-budget rows. Two pool models under test: twin/mixed (BuildCells: single-slot + adjacent twin families, one MIP may mix free twins and paid singles) vs sticky (BuildSticky: one seed-slot decision per round, waypoint list copied forward over [seed, seed+span], internal Hamming 0).",
+  "bench_binaries": {
+    "twin": "runs_sticky_ab/solve.exe -model twin",
+    "sticky_adaptive": "runs_sticky_ab/solve_ad.exe -model sticky (adaptive anchor, current cmd/solve main.go)",
+    "note": "twin and sticky bench drivers ran concurrently so every instance pair shares identical wall-clock and CPU contention"
+  },
+  "bench_configs": {
+    "both": {"rounds": 150, "wall_sec": 90, "hot_k": 6, "peel": 6, "budget_mode": "full", "sticky_span": 1}
+  },
+  "reference": "sprint_results/loads_vector.csv (per-instance first-team load vector, trunc6 lex); M3 best-known twin state (experiments/2026-09-09_m3_twin_mip_setA_bench/report.md main table, 180s dedicated runs) used as the absolute baseline for the hard instances",
+  "objective": "saturation (arc x slot) loads flattened, sorted descending, trunc6 lexicographic (smaller better); layer 1 = max saturation (MLU)",
+  "data_files": {
+    "twin_90s.tsv": "twin/mixed pool, 90s same-contention per-instance RESULT + sprint compare",
+    "sticky_ad_90s.tsv": "sticky adaptive-anchor pool, 90s same-contention per-instance RESULT + sprint compare",
+    "sticky_vs_twin.tsv": "derived per-instance budget / first-bit delta / verdict / tie layers, with M3-180s best-known twin reference column"
+  }
+}

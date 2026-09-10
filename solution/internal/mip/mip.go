@@ -2,6 +2,7 @@ package mip
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"time"
@@ -57,17 +58,48 @@ type Problem struct {
 	pairs   []Pair
 	tracked []cell // cells whose load can vary
 	caps    []float64
-	base    []float64 // current load of each tracked cell
-	delta   [][]float64 // per pair: delta[k*nCell + ci]
+	base    []float64       // current load of each tracked cell
+	delta   [][]float64     // per pair: delta[k*nCell + ci]
 	trans   [][]map[int]int // per pair per candidate: transition -> Hamming delta
+	// first-half movable-budget split (design doc §11 budget.py): the frozen
+	// demands (this round's waypoints fixed on a transition) keep occupying
+	// budget, so the MIP's movable budget on transition tt is Budget[tt] minus
+	// the frozen Hamming there.  costAt[tt] = frozen[tt] + movInc[tt], where
+	// movInc[tt] is the incumbent Hamming of the pool demands that can actually
+	// change that transition.  halfMovable rounds 1 of a first-half run down to
+	// half of the movable slice so one round cannot spend the whole budget.
+	frozen    []int
+	movInc    []int
+	costAt    []int
+	halfFirst bool
 }
 
-// Build constructs the MIP problem from a pool.
+// BuildOptions selects the Hamming-budget mode of a round.
+type BuildOptions struct {
+	// HalfFirst rounds the movable budget down to 50% (design doc §11
+	// first_half: round 1 of a setB run spends half of the remaining movable
+	// budget so early decisions keep headroom for later rounds).
+	HalfFirst bool
+}
+
+// Build constructs the MIP problem from a pool with the full-budget mode.
 func Build(p *Pool, sn *snap.Snap) (*Problem, error) {
+	return buildMode(p, sn, BuildOptions{})
+}
+
+// BuildMode constructs the MIP problem from a pool under a Hamming budget mode
+// (see BuildOptions).
+func BuildMode(p *Pool, sn *snap.Snap, opts BuildOptions) (*Problem, error) {
+	return buildMode(p, sn, opts)
+}
+
+// buildMode constructs the MIP problem from a pool under a budget mode.
+func buildMode(p *Pool, sn *snap.Snap, opts BuildOptions) (*Problem, error) {
 	m, T := p.m, p.T
 	prob := &Problem{
 		inst: p.inst, g: p.g, snap: sn, m: m, T: T,
-		slots: p.Slots, pairs: p.Pairs,
+		slots: p.Slots, pairs: p.Pairs, halfFirst: opts.HalfFirst,
+		frozen: make([]int, T), movInc: make([]int, T), costAt: make([]int, T),
 	}
 	prob.pos = make(map[int]int, len(p.Slots))
 	for i, s := range p.Slots {
@@ -136,6 +168,32 @@ func Build(p *Pool, sn *snap.Snap) (*Problem, error) {
 			}
 		}
 		prob.trans = append(prob.trans, costs)
+	}
+
+	// 4. Per-transition frozen / movable Hamming split (first-half budget mode).
+	//    A pair demand is movable on tt when at least one of its alternatives
+	//    changes the transition cost; its incumbent Hamming is movInc[tt].  The
+	//    frozen Hamming frozen[tt] = total incumbent CostAt(tt) - movInc[tt]
+	//    cannot be reallocated this round, so the movable slice is
+	//    Budget[tt] - frozen[tt].
+	for tt := 1; tt < T; tt++ {
+		prob.costAt[tt] = sn.CostAt(tt)
+		mi := 0
+		for i, prr := range p.Pairs {
+			movable := false
+			for _, cm := range prob.trans[i] {
+				if _, ok := cm[tt]; ok {
+					movable = true
+					break
+				}
+			}
+			if movable {
+				mi += snap.PathDist(prob.inst, prr.D,
+					sn.GetWaypoints(prr.D, tt-1), sn.GetWaypoints(prr.D, tt))
+			}
+		}
+		prob.movInc[tt] = mi
+		prob.frozen[tt] = prob.costAt[tt] - mi
 	}
 	return prob, nil
 }
@@ -350,7 +408,19 @@ func (pr *Problem) solveLayer(lockedLoad map[cell]float64, zlb float64, timeLimi
 		if len(cols) == 0 {
 			continue
 		}
-		addRow(cols, vals, '<', float64(budget-pr.snap.CostAt(tt)))
+		rhs := float64(budget - pr.snap.CostAt(tt))
+		if pr.halfFirst {
+			// first_half (design doc §11): round 1 may spend only half of the
+			// movable slice Budget - frozen (the frozen demands' Hamming is
+			// already committed and subtracted); clamp the delta row at 0 so an
+			// incumbent movable cost above the half-slice keeps the model
+			// feasible (no increase) instead of infeasible.
+			rhs = math.Floor(0.5*float64(budget-pr.frozen[tt])) - float64(pr.movInc[tt])
+			if rhs < 0 {
+				rhs = 0
+			}
+		}
+		addRow(cols, vals, '<', rhs)
 	}
 
 	cbeg = append(cbeg, int32(len(cind)))

@@ -1,0 +1,11 @@
+# Official checker (checker-v1.2.2, WSL Ubuntu-24.04) spot checks of M3 solutions.
+# All entries valid:true; checker_total_cost matches the solver-reported total_cost;
+# max saturation over both time slots (trunc6) matches the reported firstbit.
+instance	json_source	checker_valid	checker_total_cost	reported_total_cost	checker_max_sat_raw	reported_firstbit	note
+setA-05	bench_m4/setA-05.json	true	0	0	0.204985875195	204985	60s+ rerun (budget-1 instance; twin moves only)
+setA-06	bench_m4_long/setA-06.json	true	13	13	0.10563375	105633	180s run (row = primary table)
+setA-10	bench_m4_long/setA-10.json	true	0	0	0.0978261	97826	180s run (row = primary table)
+setA-13	bench_m4_long/setA-13.json	true	11	11	0.04487175	44871	180s run (row = primary table)
+setA-16	bench_m4_long/setA-16.json	true	6	6	0.17868854	178688	180s run (row = primary table)
+setA-19	bench_m4_long/setA-19.json	true	0	0	0.333489379999	333489	180s run (row = primary table)
+setA-20	bench_m4/setA-20.json	true	39	39	0.991312385321	991312	independent 180s rerun, slightly better than primary row (cost 39 vs 57); primary-row json not preserved

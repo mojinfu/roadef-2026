@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>T-ASR 实时求解看板</title>
+<style>
+:root{
+  --bg:#0b1220; --panel:#141d30; --panel2:#1a2740; --line:#263349;
+  --text:#dfe6f1; --dim:#8fa1bd; --faint:#5c6b85;
+  --bar:#3b82f6; --bar-hi:#60a5fa;
+  --hot:#f43f5e; --amber:#f5a623; --green:#34d399; --frozen:#64748b; --white:#f8fafc;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:13px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,"Microsoft YaHei",sans-serif}
+.mono{font-variant-numeric:tabular-nums;font-family:"Cascadia Mono",Consolas,"JetBrains Mono",monospace}
+header{position:sticky;top:0;z-index:5;background:linear-gradient(#101a2c,#0d1525);border-bottom:1px solid var(--line);padding:10px 16px}
+.title-row{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.title-row h1{font-size:15px;margin:0;color:var(--white);letter-spacing:.3px}
+#instance{font-size:16px;font-weight:600;color:var(--green)}
+.chip{font-size:11px;padding:1px 9px;border-radius:20px;border:1px solid var(--line);color:var(--dim);background:#0f1729}
+.chip.run{color:#0a0f1a;background:var(--green);border-color:var(--green);font-weight:600}
+.chip.done{background:var(--frozen);border-color:var(--frozen);color:#e5e7eb}
+.chip.conn{background:#1b2740}
+#when{margin-left:auto;color:var(--faint);font-size:11px}
+.metrics{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.met{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px 11px;min-width:86px}
+.met .lab{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px}
+.met .val{font-size:15px;font-weight:600;color:var(--white)}
+.met .val.small{font-size:12px}
+main{padding:12px 16px;display:flex;flex-direction:column;gap:14px}
+h2{font-size:12px;margin:0 0 6px;color:var(--dim);font-weight:600;letter-spacing:.5px}
+.row{display:flex;gap:14px;flex-wrap:wrap;align-items:stretch}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;flex:1 1 320px;min-width:280px}
+.mlu .big{font-size:30px;font-weight:700;color:var(--white);line-height:1.1}
+.mlu .big .u{font-size:13px;color:var(--dim);font-weight:500}
+.mlu .sub{color:var(--dim);margin-top:4px;font-size:12px}
+.mlu .arrow{color:var(--green)}
+/* global top-10 */
+#topList{display:grid;grid-template-columns:auto auto auto auto 1fr;gap:2px 12px;font-size:12px}
+#topList .head{color:var(--faint);font-size:10px;letter-spacing:.4px;text-transform:uppercase}
+.trow .rn{color:var(--faint)}
+.trow .hotmark{color:var(--hot)}
+/* current focus chips */
+#hotChips{display:flex;flex-wrap:wrap;gap:6px}
+.hchip{background:#2a1a22;border:1px solid #5f2130;border-radius:8px;padding:3px 9px;font-size:12px}
+.hchip b{color:#fda4af}
+.hchip .v{color:var(--amber);font-weight:600}
+.empty{color:var(--faint);font-size:12px}
+/* slot bar panels: wrap onto extra rows instead of scrolling horizontally */
+#slots{display:flex;gap:10px;flex-wrap:wrap;padding-bottom:6px;align-items:flex-start}
+.slotpanel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:6px 8px;flex:0 1 auto;max-width:100%}
+.slot-head{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+.slot-head .t{font-weight:700;color:var(--white);font-size:13px}
+.slot-head .focus-tag{font-size:10px;color:#062812;background:var(--green);border-radius:4px;padding:0 5px;font-weight:600}
+.slot-head .cap-note{font-size:10px;color:var(--faint)}
+.bars{display:flex;gap:1px;height:236px}
+.col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end}
+.val{font-size:9px;color:var(--dim);height:12px;line-height:12px;white-space:nowrap;overflow:hidden;max-width:100%}
+.track{width:100%;flex:1;min-height:0;display:flex;align-items:flex-end;justify-content:center;padding:0 1px;position:relative}
+.fill{width:68%;min-width:2px;max-width:20px;background:linear-gradient(180deg,var(--bar-hi),var(--bar));border-radius:2px 2px 0 0;position:relative;min-height:1px}
+.fill.frozen{background:#3a4658;background:repeating-linear-gradient(45deg,#3a4658,#3a4658 3px,#2c3646 3px,#2c3646 6px)}
+.fill.hot{box-shadow:0 0 0 2px var(--hot),0 0 8px 0 rgba(244,63,94,.6)}
+.cap{position:absolute;left:0;right:0;top:0;height:0;background:var(--amber);opacity:.92;border-radius:2px 2px 0 0}
+.albl{font-size:9px;color:var(--faint);height:14px;line-height:14px;white-space:nowrap;overflow:hidden;max-width:100%;text-align:center}
+.albl b{font-weight:600;color:var(--dim)}
+.albl.frozen{color:#8593a6}
+/* disconnected overlay */
+#connOverlay{position:fixed;inset:0;background:rgba(5,8,14,.82);display:none;align-items:center;justify-content:center;z-index:50;text-align:center}
+#connOverlay .card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:22px 30px}
+#connOverlay .big{font-size:18px;color:var(--white)}
+footer{color:var(--faint);font-size:11px;padding:2px 16px 14px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:4px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.sw{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px}
+.sw.bar{background:var(--bar)}
+.sw.hot{box-shadow:0 0 0 2px var(--hot)}
+.sw.frozen{background:#3a4658}
+.sw.conf{background:var(--amber)}
+.sw.focus{background:var(--green)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title-row">
+    <h1>T-ASR 求解看板</h1>
+    <span id="instance">—</span>
+    <span id="status" class="chip">连接中…</span>
+    <span id="when"></span>
+  </div>
+  <div class="metrics" id="metrics"></div>
+</header>
+
+<main>
+  <div class="row">
+    <div class="box mlu">
+      <h2>温度 · MLU（当前最高热值 = first-bit）</h2>
+      <div class="big mono"><span id="mluVal">—</span> <span class="u" id="mluRank"></span></div>
+      <div class="sub mono" id="mluSub"></div>
+    </div>
+    <div class="box">
+      <h2>正在求解（MIP focus）</h2>
+      <div id="hotChips"><span class="empty">尚未开始</span></div>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>前 10 位最烫的弧（t · a · sat / trunc6-rank）</h2>
+    <div id="topList"></div>
+  </div>
+
+  <div class="box">
+    <h2>分时段热弧柱状图（t 升序 · 每时段前 <span id="barTopN">10</span> 个热弧按热度降序）</h2>
+    <div id="slots"></div>
+  </div>
+</main>
+
+<footer>
+  <div class="legend">
+    <span><i class="sw bar"></i>弧饱和 sat = load/cap（柱顶数值）</span>
+    <span><i class="sw hot"></i>红圈 = 当前正在求解的热弧</span>
+    <span><i class="sw frozen"></i>灰斜纹 = 已冻结（打不动，标记 done）</span>
+    <span><i class="sw conf"></i>琥珀帽 = 冻结置信度 conf（失败次数/fail-limit）</span>
+    <span><i class="sw focus"></i>绿色 focus = 当前焦点时段 t</span>
+    <span>温度 = 当前 max 饱和（随求解下降，近似退火温度）</span>
+  </div>
+  <div class="legend">
+    <span>数据每秒刷新一次。求解进程结束后页面会提示连接断开，最终状态在进程退出前保持。</span>
+  </div>
+</footer>
+
+<div id="connOverlay"><div class="card">
+  <div class="big">求解进程已结束或连接断开</div>
+  <div style="color:var(--dim);margin-top:6px">最后看到的画面保留在此。看板随求解器退出而停止。</div>
+</div></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+let lastState = null;
+let lastOk = 0;
+
+const POLL_MS = 600;
+
+function fmtRank(v){ return (v/1e6).toFixed(6); }
+function fmtSat(v){ return v.toFixed(6); }
+function fmtMs(ms){
+  const s = Math.floor(ms/1000);
+  const h = Math.floor(s/3600), m = Math.floor(s%3600/60), sec = s%60;
+  const p = n => String(n).padStart(2,"0");
+  return h>0 ? `${h}:${p(m)}:${p(sec)}` : `${p(m)}:${p(sec)}`;
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function metricsHTML(st){
+  const items = [
+    ["轮次", `${st.round}/${st.max_rounds}`],
+    ["用时", fmtMs(st.elapsed_ms)],
+    ["接受", st.accepted],
+    ["拒绝", st.rejected],
+    ["总成本", st.total_cost],
+    ["预算", st.budget_ok ? "OK" : "超支"],
+    ["时段", st.n_slots],
+  ];
+  return items.map(([l,v]) => `<div class="met"><div class="lab">${l}</div><div class="val mono">${v}</div></div>`).join("");
+}
+
+function renderMlu(st){
+  $("mluVal").textContent = st.first_bit.toFixed(6);
+  $("mluRank").textContent = `rank ${st.first_rank}`;
+  const delta = st.start_rank - st.first_rank;
+  const d = delta>0 ? `↓ ${delta}` : delta<0 ? `↑ ${-delta}` : "0";
+  $("mluSub").textContent = `起点 ${st.start_rank}  →  当前 ${st.first_rank}  （改善 ${d}）`;
+}
+
+function cellLabel(c){ return `t=${c.t} a${c.a} (${c.tag})`; }
+
+function topListHTML(top){
+  if(!top || !top.length) return `<span class="empty">暂无</span>`;
+  const head = `<span class="head">#</span><span class="head">t·a</span><span class="head">arc</span><span class="head">sat</span><span class="head">trunc6-rank</span>`;
+  const rows = top.map((c,i) => {
+    const mk = c.hot ? `<span class="hotmark" title="正在求解">●</span> ` : "";
+    const fr = c.frozen ? `❄ ` : "";
+    return `<span class="rn mono">${i+1}</span>` +
+      `<span class="mono">${mk}t=${c.t} a${c.a}</span>` +
+      `<span class="mono" style="color:var(--dim)">${esc(c.tag)}</span>` +
+      `<span class="mono">${fmtSat(c.sat)}</span>` +
+      `<span class="mono">${c.rank}</span>`;
+  }).join("");
+  return head + rows;
+}
+
+function hotsHTML(hots){
+  if(!hots || !hots.length) return `<span class="empty">当前无 focus（轮空 / 已结束）</span>`;
+  return hots.map(c =>
+    `<span class="hchip mono"><b>t=${c.t} a${c.a}</b> (${esc(c.tag)}) · <span class="v">${fmtSat(c.sat)}</span> ${c.frozen?"❄":""}</span>`
+  ).join("");
+}
+
+function slotsHTML(st){
+  if(!st.slots) return `<span class="empty">暂无</span>`;
+  const focusT = st.focus_slot;
+  return st.slots.map(slot => {
+    const focus = slot.focus || slot.t === focusT;
+    const head = `<div class="slot-head"><span class="t mono">t=${slot.t}</span>` +
+      (focus ? `<span class="focus-tag">focus</span>` : ``) +
+      `<span class="cap-note">${slot.bars.length} 根柱</span></div>`;
+    const cols = slot.bars.map(c => {
+      const pct = st.first_bit>0 ? Math.max(0.5, c.sat/st.first_bit*100) : 0;
+      const valCls = c.frozen ? "val frozen" : "val";
+      const lblCls = c.frozen ? "albl frozen" : "albl";
+      const confPct = (c.conf>0 && c.conf<1 && !c.frozen) ? (c.conf*100).toFixed(0) : null;
+      const capHtml = confPct!==null
+        ? `<div class="cap" style="height:${confPct}%" title="冻结置信度 conf = ${c.conf.toFixed(2)}（失败 ${c.attempted?"≥1":0} 次 / fail-limit ${st.fail_limit}）"></div>`
+        : "";
+      const cls = ["fill"];
+      if(c.frozen) cls.push("frozen"); else if(c.hot) cls.push("hot");
+      const title = `a${c.a} (${c.tag}) · sat=${fmtSat(c.sat)} rank=${c.rank}\n` +
+        `load=${c.load.toFixed(3)} cap=${c.cap.toFixed(3)}\n` +
+        (c.frozen ? "已冻结" : c.hot ? "正在求解中" : c.conf>0 ? `conf=${c.conf.toFixed(2)}` : "未尝试");
+      return `<div class="col" title="${esc(title)}">
+        <div class="${valCls}">${fmtSat(c.sat)}</div>
+        <div class="track"><div class="${cls.join(" ")}" style="height:${pct.toFixed(1)}%">${capHtml}</div></div>
+        <div class="${lblCls}">${c.frozen?"❄":""}<b>a${c.a}</b></div>
+      </div>`;
+    }).join("");
+    return `<div class="slotpanel">${head}<div class="bars">${cols}</div></div>`;
+  }).join("");
+}
+
+function render(st){
+  lastState = st;
+  lastOk = Date.now();
+  $("instance").textContent = st.instance || "—";
+  const stEl = $("status");
+  if(st.status === "done"){
+    stEl.textContent = "已结束"; stEl.className = "chip done";
+  } else if(st.status === "running"){
+    stEl.textContent = "求解中"; stEl.className = "chip run";
+  } else {
+    stEl.textContent = st.status || "…"; stEl.className = "chip";
+  }
+  $("when").textContent = "更新 " + new Date().toLocaleTimeString();
+  $("metrics").innerHTML = metricsHTML(st);
+  renderMlu(st);
+  $("topList").innerHTML = topListHTML(st.top);
+  $("hotChips").innerHTML = hotsHTML(st.hots);
+  const sl = $("slots");
+  const oldScroll = sl.scrollLeft;
+  $("barTopN").textContent = st.bar_top;
+  sl.innerHTML = slotsHTML(st);
+  sl.scrollLeft = oldScroll;
+  $("connOverlay").style.display = "none";
+}
+
+async function tick(){
+  try{
+    const r = await fetch("/api/status", {cache:"no-store"});
+    if(!r.ok) throw new Error("status " + r.status);
+    render(await r.json());
+  }catch(e){
+    if(lastState && Date.now() - lastOk > 3000){
+      $("connOverlay").style.display = "flex";
+      $("status").textContent = "连接断开";
+      $("status").className = "chip done";
+    }
+  }
+}
+tick();
+setInterval(tick, POLL_MS);
+</script>
+</body>
+</html>

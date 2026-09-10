@@ -27,6 +27,7 @@ import (
 	"tasr/internal/io"
 	"tasr/internal/mip"
 	"tasr/internal/model"
+	"tasr/internal/monitor"
 	"tasr/internal/snap"
 )
 
@@ -38,8 +39,16 @@ func main() {
 	peel := flag.Int("peel", 6, "lex peel depth per MIP")
 	failLimit := flag.Int("fail-limit", 2, "failed attempts before a seed is marked done")
 	hotK := flag.Int("hot-k", 6, "number of hot arcs of the focus slot decomposed together")
+	model := flag.String("model", "twin", "pool model: twin (explicit single/twin families) or sticky (seed decision extends over the incumbent plateau)")
+	stickySpan := flag.Int("sticky-span", 1, "sticky: copy the seed waypoint at most this many slots forward")
+	budgetMode := flag.String("budget-mode", "full", "Hamming budget mode: full (spend all remaining each round) or first_half (round 1 spends half of the movable remaining budget)")
 	wallSec := flag.Int("wall-sec", 0, "stop the round loop after this many seconds (0 = unlimited)")
 	mipSec := flag.Float64("mip-sec", 20, "per peel-layer Gurobi time cap in seconds (0 = solve to completion)")
+	monitorOn := flag.Bool("monitor", false, "serve a live progress page at http://127.0.0.1:<port> and open the browser")
+	monitorPort := flag.Int("monitor-port", 8765, "live view port (0 = pick a free port; busy port falls back to free)")
+	monitorTop := flag.Int("monitor-top", 10, "bars per time slot on the live view page")
+	monitorTopN := flag.Int("monitor-topn", 10, "top-N hottest cells listed at the top of the live view page")
+	monitorLinger := flag.Int("monitor-linger", 45, "seconds to keep the live view alive after solving stops (0 = exit immediately)")
 	flag.Parse()
 	if *prefix == "" {
 		fmt.Fprintln(os.Stderr, "usage: solve -prefix setA/setA-01 [-out sol.json] [-sprint loads_vector.csv]")
@@ -75,6 +84,49 @@ func main() {
 		deadline = time.Now().Add(time.Duration(*wallSec) * time.Second)
 	}
 
+	// Live view: bind the HTTP server, print/open the URL, and publish one
+	// snapshot per round (before the expensive pool build / MIP, so the cells
+	// being worked on stay on screen while Gurobi runs) plus a final one.
+	var mon *monitor.Server
+	if *monitorOn {
+		mon = monitor.New()
+		url, err := mon.Listen(*monitorPort)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "live view disabled: %v\n", err)
+		} else {
+			fmt.Printf("live view: %s  (auto-open; TASR_MONITOR_NO_OPEN=1 disables)\n", url)
+			monitor.OpenBrowser(url)
+		}
+		// Heartbeat: re-stamp the live snapshot ~1x/s so the page clock/status
+		// move while a round is stuck inside pool build + Gurobi.  The real per-
+		// round publishes (below) still carry the fresh heatmap on top of it.
+		go func() {
+			t := time.NewTicker(time.Second)
+			defer t.Stop()
+			for range t.C {
+				mon.LiveTick()
+			}
+		}()
+	}
+	tSolveStart := time.Now()
+	startRank := bestFirst
+	publish := func(status, msg string, round int, hots []snap.Key) {
+		if mon == nil {
+			return
+		}
+		mon.Publish(monitor.BuildState(inst, g, bestSnap, monitor.BuildOpts{
+			Instance: inst.Name, Status: status, Message: msg,
+			Round: round, MaxRounds: *rounds,
+			ElapsedMS: time.Since(tSolveStart).Milliseconds(),
+			Accepted:  accepted, Rejected: rejected,
+			TotalCost: bestSnap.TotalCost(), BudgetOK: bestSnap.BudgetOK(),
+			StartRank: startRank, FailLimit: *failLimit,
+			Hots: hots, Done: done, Fail: fail,
+			BarTop: *monitorTop, TopN: *monitorTopN,
+		}))
+	}
+	publish("running", "", 0, nil)
+
 	for r := 1; r <= *rounds; r++ {
 		if !deadline.IsZero() && time.Now().After(deadline) {
 			fmt.Printf("  wall-sec limit %d reached after %d rounds\n", *wallSec, r-1)
@@ -105,6 +157,7 @@ func main() {
 		if len(hots) == 0 {
 			break
 		}
+		publish("running", "", r, hots)
 		if debug(r) {
 			fmt.Printf("round %d: hot cells=%v sat=[%.4f..%.4f] done=%d\n",
 				r, hots, sat[hots[len(hots)-1].A*T+hots[len(hots)-1].T],
@@ -122,15 +175,86 @@ func main() {
 			rejected++
 		}
 
-		hc := make([]mip.HotCell, len(hots))
-		for i, k := range hots {
-			hc[i] = mip.HotCell{Slot: k.T, Arc: k.A}
-		}
 		gen := &mip.Generator{Inst: inst, G: g, Snap: bestSnap, MaxCandPerDemand: 12}
 		tPoolStart := time.Now()
-		pool, err := gen.BuildCells(hc)
+		var pool *mip.Pool
+		if *model == "sticky" {
+			// Sticky anchor + reach (design doc §12/§14): a round makes decisions
+			// at the seed slot and the chosen waypoint list is copied forward over
+			// the following slots, so a cell on slot s can only be relieved by a
+			// round anchored at some t <= s (the copy never runs backwards).
+			// The anchor alternates between the two round kinds of the doc's
+			// schedule (even = hot, odd = early):
+			//   - hot anchor (slot of the global hottest cell): the run is short
+			//     (a divergence at that slot) so the MIP can *spend* Hamming
+			//     budget to shave a cell that no free twin can reach;
+			//   - early anchor (earliest hot slot): the copy reaches the later
+			//     slots of the top-K set, reproducing the twin reach — a slot-1
+			//     hot cell is relieved budget-free by a seed-0 copy that writes
+			//     both slots, the only affordable shape when the budget is ~0.
+			// Either way the whole top-K hot set inside the copy window is handed
+			// to the pool so every reachable cell is ranked and relieved.
+			// A hot (divergence) round spends Hamming budget, so it is only worth
+			// running while the transition budgets still have headroom; with the
+			// budget exhausted a divergence is unaffordable and the round can only
+			// reject.  Remaining = sum over transitions of Budget - incumbent
+			// cost.  The 8 threshold is above the ~2-4 units the cheapest
+			// single-waypoint divergence costs.
+			rem := 0
+			for tt := 1; tt < T; tt++ {
+				if tt < len(inst.Scenario.Budget) {
+					rem += inst.Scenario.Budget[tt] - bestSnap.CostAt(tt)
+				}
+			}
+			hot := r%2 == 0 && rem >= 8
+			seed := hots[0].T
+			if !hot {
+				// early/free round: anchor at the earliest hot slot so the copy
+				// reaches every decomposed cell (free twin relief).
+				for _, k := range hots {
+					if k.T < seed {
+						seed = k.T
+					}
+				}
+			}
+			// hot round anchors at the global hottest cell's slot (seed stays
+			// hots[0].T): the run is short and the MIP can spend budget.
+			reach := seed + *stickySpan
+			if reach > T-1 {
+				reach = T - 1
+			}
+			// Keep only the cells the copy can actually reach; bookkeeping (fail /
+			// done) must match the cells the round really attacks.
+			kept := hots[:0]
+			for _, k := range hots {
+				if k.T >= seed && k.T <= reach {
+					kept = append(kept, k)
+				}
+			}
+			hots = kept
+			if len(hots) == 0 {
+				why["no-seed-hot"]++
+				markFail()
+				continue
+			}
+			hc := make([]mip.HotCell, len(hots))
+			for i, k := range hots {
+				hc[i] = mip.HotCell{Slot: k.T, Arc: k.A}
+			}
+			pool, err = gen.BuildSticky(seed, hc, *stickySpan)
+		} else {
+			hc := make([]mip.HotCell, len(hots))
+			for i, k := range hots {
+				hc[i] = mip.HotCell{Slot: k.T, Arc: k.A}
+			}
+			pool, err = gen.BuildCells(hc)
+		}
 		if err != nil {
 			fatal(err)
+		}
+		if pool == nil {
+			// sticky found no demand active on the seed slot: nothing to build.
+			pool = &mip.Pool{}
 		}
 		tPool := time.Since(tPoolStart).Seconds()
 		if timing() && debug(r) {
@@ -142,7 +266,11 @@ func main() {
 			continue
 		}
 
-		prob, err := mip.Build(pool, bestSnap)
+		prob, err := mip.BuildMode(pool, bestSnap, mip.BuildOptions{
+			// first_half rounds the movable budget of the very first round down
+			// to 50% so one early decision cannot spend the whole budget.
+			HalfFirst: *budgetMode == "first_half" && r == 1,
+		})
 		if err != nil {
 			fatal(err)
 		}
@@ -242,6 +370,7 @@ func main() {
 			fmt.Printf("    top raw=%.9f  second raw=%.9f\n", bestDesc[0], bestDesc[1])
 		}
 	}
+	publish("done", "solver loop finished", 0, nil)
 
 	fmt.Printf("done: accepted=%d rejected=%d  final first-bit raw=%.9f rank=%d  total_cost=%d budget_ok=%v\n",
 		accepted, rejected, bestDesc[0], bestFirst, bestSnap.TotalCost(), bestSnap.BudgetOK())
@@ -269,6 +398,13 @@ func main() {
 			fatal(err)
 		}
 		fmt.Printf("wrote solution -> %s\n", *out)
+	}
+	if mon != nil {
+		if *monitorLinger > 0 {
+			fmt.Printf("solve finished; live view stays up for %ds (Ctrl-C to exit now).\n", *monitorLinger)
+			time.Sleep(time.Duration(*monitorLinger) * time.Second)
+		}
+		mon.Close()
 	}
 }
 

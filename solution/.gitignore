@@ -20,3 +20,12 @@ _pyref/*.log
 _pyref/bench_setA.py
 _pyref/bench_setA.sh
 _pyref/killbench.ps1
+
+# Scratch bench outputs (any _pyref/bench_* dir) + A/B run dirs at repo root
+_pyref/bench_*/
+runs_sticky_ab/
+runs_v2/
+*.exe
+
+# Tool caches
+.impeccable/

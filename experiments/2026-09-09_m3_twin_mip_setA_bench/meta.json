@@ -1,0 +1,28 @@
+{
+  "experiment": "2026-09-09_m3_twin_mip_setA_bench",
+  "milestone": "M3",
+  "date": "2026-09-09",
+  "branch": "SOLUTION",
+  "commit": "94af1fe6de9fb87db59a5e4b6a9846931b6abc60",
+  "dirty": true,
+  "code_state": "94af1fe + uncommitted: internal/mip/pool.go Wp2Cap=8000 2-wp stride cap; cmd/solve/main.go -mip-sec per-layer Gurobi cap + -wall-sec loop deadline + pool/mip timing prints (env TASR_TIMING); internal/mip/mip.go TimeLimit; internal/gurobi SetParam",
+  "solver": "V1.0 Go Gurobi-MIP decomposition outer loop (cmd/solve): global hot-cell decompose (hot-k=6, both slots), atomic single/twin waypoint candidates per demand (MaxCandPerDemand=12, 1-wp + stride-capped 2-wp), lexicographic peeling MIP (peel=6), accept only on real truncated-lex improvement, Hamming-budget rows per transition",
+  "bench_binaries": {
+    "fresh_runs": "solution/_pyref/solve.exe rebuilt 2026-09-09 23:29 (includes Wp2Cap cap + mip-sec + timing)",
+    "cached_runs": "same code minus Wp2Cap stride cap (user binary used for the first bench_m4 pass)"
+  },
+  "bench_configs": {
+    "bench_m4_60s": {"outdir": "solution/_pyref/bench_m4", "rounds": 150, "wall_sec": 60, "hot_k": 6, "peel": 6, "note": "first full 20-instance pass; setA-05/setA-20 rerun to completion"},
+    "bench_m4_long": {"outdir": "solution/_pyref/bench_m4_long", "rounds": 200, "wall_sec": 180, "hot_k": 6, "peel": 6, "note": "seeded from bench_m4 rows; instances 06,10,13,16,19,20 freshly re-run at 180s wall; other rows cached from bench_m4_60s"}
+  },
+  "reference": "sprint_results/loads_vector.csv (per-instance first-team load vector, trunc6 lex)",
+  "objective": "saturation (arc x slot) loads flattened, sorted descending, trunc6 lexicographic (smaller better); layer 1 = max saturation (MLU)",
+  "data_files": {
+    "summary_m4_long.tsv": "primary result table (best-known per instance)",
+    "summary_m4_60s.tsv": "60s-wall pass for comparison",
+    "gap_table.tsv": "per-instance sizes, sprint/ours first bit, max parity, relative max gap, tie depth",
+    "sprint_first_rank.tsv": "sprint reference first-layer trunc6 ranks",
+    "checker_spotcheck.tsv": "official checker validation of the 180s fresh-run solutions (valid, total_cost, max sat match solver-reported)",
+    "checker_bench_m4_all.tsv": "official checker over all 20 bench_m4 jsons: valid:true, max-mlu rank == TSV firstbit (script solution/_pyref/validate_checker.py)"
+  }
+}

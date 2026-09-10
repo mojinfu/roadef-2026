@@ -24,6 +24,8 @@ func main() {
 	wallSec := flag.Int("wall-sec", 0, "wall-clock cap per instance in seconds (0 = none)")
 	hotK := flag.Int("hot-k", 6, "hot cells per round")
 	peel := flag.Int("peel", 6, "lex peel depth")
+	model := flag.String("model", "twin", "solver pool model: twin or sticky")
+	budgetMode := flag.String("budget-mode", "full", "solver Hamming budget mode: full or first_half")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dir, 0o755); err != nil {
@@ -65,6 +67,8 @@ func main() {
 			"-rounds", fmt.Sprint(*rounds),
 			"-hot-k", fmt.Sprint(*hotK),
 			"-peel", fmt.Sprint(*peel),
+			"-model", *model,
+			"-budget-mode", *budgetMode,
 		}
 		if *wallSec > 0 {
 			args = append(args, "-wall-sec", fmt.Sprint(*wallSec))

@@ -13,10 +13,15 @@
 //     dist_r[x] == dist_r[y] + metric(x, y) with **exact float equality**;
 //   - nodes are processed from the source side outwards (decreasing dist_r),
 //     flow entering a node being split evenly among its tight outgoing arcs.
+//
+// The backward Dijkstra itself lives in internal/graph (graph.Dijkstra); ecmp
+// only supplies the split that turns a distance array into an atom vector.
+// Distances are pulled through the shared per-(slot, banned-set) index, so a
+// segment head v that many candidates share costs one Dijkstra per (v, slot),
+// not one per (u, v, slot).
 package ecmp
 
 import (
-	"container/heap"
 	"container/list"
 	"fmt"
 	"math"
@@ -31,6 +36,7 @@ import (
 type Cache struct {
 	g       *graph.Graph
 	blocked [][]bool // per slot: blocked[arcID]
+	idx     *graph.Index
 	maxSize int
 
 	memo map[uvt]*list.Element
@@ -45,7 +51,8 @@ type cacheEntry struct {
 }
 
 // NewCache builds a cache keyed on the scenario's per-slot down-arc sets.
-// maxSize <= 0 means unlimited.
+// maxSize <= 0 means unlimited.  The attached graph.Index is bounded
+// internally (LRU), independently of the atom memo.
 func NewCache(g *graph.Graph, blocked [][]bool, maxSize int) *Cache {
 	if maxSize <= 0 {
 		maxSize = 1 << 30
@@ -53,6 +60,7 @@ func NewCache(g *graph.Graph, blocked [][]bool, maxSize int) *Cache {
 	return &Cache{
 		g:       g,
 		blocked: blocked,
+		idx:     graph.NewIndex(g, blocked, 0),
 		maxSize: maxSize,
 		memo:    make(map[uvt]*list.Element),
 		lru:     list.New(),
@@ -70,7 +78,7 @@ func (c *Cache) Atom(u, v, t int) []float64 {
 		c.lru.MoveToFront(el)
 		return el.Value.(*cacheEntry).vals
 	}
-	vals := ComputeAtom(c.g, u, v, c.blocked[t])
+	vals := c.atom(u, v, t)
 	ent := &cacheEntry{key: key, vals: vals}
 	c.memo[key] = c.lru.PushFront(ent)
 	if c.lru.Len() > c.maxSize {
@@ -83,22 +91,43 @@ func (c *Cache) Atom(u, v, t int) []float64 {
 	return vals
 }
 
-// Clear drops all cached atoms.
+// atom computes the vector for (u, v, t) with no memoisation, reusing the
+// slot's cached reverse distances to v.
+func (c *Cache) atom(u, v, t int) []float64 {
+	if u == v {
+		return make([]float64, c.g.M)
+	}
+	dist := c.idx.DistTo(t, v)
+	if math.IsInf(dist[u], 1) {
+		return nil
+	}
+	return splitAtom(c.g, u, v, dist, c.blocked[t])
+}
+
+// Clear drops all cached atoms (the distance index is kept).
 func (c *Cache) Clear() {
 	c.memo = make(map[uvt]*list.Element)
 	c.lru = list.New()
 }
 
-// ComputeAtom is the bare atom computation (no caching).
+// ComputeAtom is the bare atom computation (no caching): a fresh reverse
+// Dijkstra from v, then splitAtom.  Used by tests and one-shot callers; the
+// Cache path goes through atom() instead so distances are shared.
 func ComputeAtom(g *graph.Graph, u, v int, blocked []bool) []float64 {
 	if u == v {
 		return make([]float64, g.M)
 	}
-	dist := dijkstraDist(g, v, blocked, true)
+	dist := graph.Dijkstra(g, v, blocked, true)
 	if math.IsInf(dist[u], 1) {
 		return nil
 	}
+	return splitAtom(g, u, v, dist, blocked)
+}
 
+// splitAtom spreads one unit of flow from u to v across the tight arcs implied
+// by dist (shortest x -> v distances under the same blocked set).  dist is
+// read-only and shared when it comes from the index.
+func splitAtom(g *graph.Graph, u, v int, dist []float64, blocked []bool) []float64 {
 	atom := make([]float64, g.M)
 	flow := make([]float64, g.N)
 	flow[u] = 1.0
@@ -147,80 +176,12 @@ func ComputeAtom(g *graph.Graph, u, v int, blocked []bool) []float64 {
 	return atom
 }
 
-// dijkstraDist computes shortest distances from source, skipping blocked arcs.
-// reverse=false -> dist[x] = source -> x; reverse=true -> dist[x] = x -> source
-// (Dijkstra run over reversed adjacency).  Relaxations happen in exactly the
-// reference order: adjacency arcs in ascending id, nd = d + metric, strict <.
-func dijkstraDist(g *graph.Graph, source int, blocked []bool, reverse bool) []float64 {
-	dist := make([]float64, g.N)
-	for i := range dist {
-		dist[i] = math.Inf(1)
-	}
-	dist[source] = 0.0
-	adj := g.Outs
-	if reverse {
-		adj = g.Ins
-	}
-
-	h := &nodeHeap{{dist: 0.0, node: source}}
-	for h.Len() > 0 {
-		it := heap.Pop(h).(pair)
-		d, node := it.dist, it.node
-		if d > dist[node] {
-			continue
-		}
-		for _, aid := range adj[node] {
-			if blocked != nil && blocked[aid] {
-				continue
-			}
-			var nxt int
-			if reverse {
-				nxt = g.From[aid]
-			} else {
-				nxt = g.To[aid]
-			}
-			nd := d + g.Metric[aid]
-			if nd < dist[nxt] {
-				dist[nxt] = nd
-				heap.Push(h, pair{dist: nd, node: nxt})
-			}
-		}
-	}
-	return dist
-}
-
 // DistancesFrom is a convenience for the solver: shortest u -> * distances.
 func DistancesFrom(g *graph.Graph, source int, blocked []bool) []float64 {
-	return dijkstraDist(g, source, blocked, false)
+	return graph.Dijkstra(g, source, blocked, false)
 }
 
 // DistancesTo is a convenience for the solver: shortest * -> v distances.
 func DistancesTo(g *graph.Graph, target int, blocked []bool) []float64 {
-	return dijkstraDist(g, target, blocked, true)
-}
-
-type pair struct {
-	dist float64
-	node int
-}
-
-type nodeHeap []pair
-
-func (h nodeHeap) Len() int { return len(h) }
-func (h nodeHeap) Less(i, j int) bool {
-	if h[i].dist != h[j].dist {
-		return h[i].dist < h[j].dist
-	}
-	return h[i].node < h[j].node
-}
-func (h nodeHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-func (h *nodeHeap) Push(x interface{}) {
-	*h = append(*h, x.(pair))
-}
-func (h *nodeHeap) Pop() interface{} {
-	old := *h
-	n := len(old)
-	it := old[n-1]
-	*h = old[:n-1]
-	return it
+	return graph.Dijkstra(g, target, blocked, true)
 }

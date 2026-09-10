@@ -67,7 +67,7 @@ func TestComputeAtomSelf(t *testing.T) {
 func TestReverseDijkstraBlocked(t *testing.T) {
 	g := tinyGraph()
 	blocked := []bool{true, true, false, false, false}
-	dist := dijkstraDist(g, 3, blocked, true)
+	dist := graph.Dijkstra(g, 3, blocked, true)
 	if !math.IsInf(dist[0], 1) {
 		t.Fatalf("node 0 should be unreachable, got %v", dist[0])
 	}
