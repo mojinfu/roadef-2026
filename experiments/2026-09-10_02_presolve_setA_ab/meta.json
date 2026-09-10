@@ -1,0 +1,55 @@
+{
+  "experiment": "2026-09-10_02_presolve_setA_ab",
+  "milestone": "M5-presolve",
+  "date": "2026-09-10",
+  "branch": "SOLUTION",
+  "commit": "71eb7f1",
+  "dirty": true,
+  "code_state": "71eb7f1 + uncommitted: new internal/presolve/ (presolve.go, presolve_test.go) + internal/graph/bridge.go; cmd/solve/main.go (presolve flags -presolve/-presolve-time/-presolve-deep/-presolve-pins/-skip-floor, MIP floor rows + SatFloor zlb, first-bit certificate); internal/mip/mip.go (BuildOptions.Floors/SatFloor + floor rows); cmd/bench/main.go (passthrough flags); solution/scripts/{presolve_scan.sh,presolve_deep_sweep.sh,tabulate_pres_ab.py}; design doc solution/0910pres.design. NOTE: snapshot_env.py referenced by CLAUDE.md is not present in this tree; meta.json hand-written in the same format as 2026-09-10_01.",
+  "solver": "V1.0 Go Gurobi-MIP decomposition outer loop (cmd/solve): global hot-cell decompose (hot-k=6), per-demand waypoint candidates, lexicographic peeling MIP (peel=6), accept only on real truncated-lex improvement, Hamming-budget rows, sticky pool model. New in this experiment: a one-shot presolve phase (15s global budget, run once at solve start) that records, for every (slot, arc) cell with positive load, a sound *load floor* = volume of the demands that structurally cannot avoid the arc (class 1 bridges, class 2 sink/source dominance, class 3 exact per-demand dodge test). Floors feed (a) the MIP as >= rows, (b) layer-0 zlb via SatFloor, (c) an optional -skip-floor round-seed filter, (d) a final first-bit certificate.",
+  "presolve_semantics": {
+    "floor_vs_pin": "load(t,e) >= sum_{d in F} vol_d(t) holds for EVERY routing (a floor). lb==ub (a full pin) additionally requires that no other demand can ever reach e; the early rule 'sum forced == observed load -> pin' was unsound and was replaced by the noNewUser test (source unreachable / target unreachable / w(e) > dist(u,v)).",
+    "proven_pins": "0 on every setA and setB instance, by design (ning lou wu cuo: rather miss than be wrong). Revoked = 0, no pin-violation WARN.",
+    "lb_sat": "LB_sat = max over all recorded floors of floor/cap; its trunc6 is a lower bound on the first bit of the sorted saturation vector."
+  },
+  "bench_binaries": {
+    "solve_pres.exe": "solution/runs_sticky_ab/solve_pres.exe -presolve-deep default 0 (uncapped class-3 pass)",
+    "solve_top.exe": "solution/runs_pres_ab/solve_top.exe -presolve-deep default 100 (current source)",
+    "note": "the four A/B arms ran concurrently in the same time window so every instance pair shares identical CPU contention"
+  },
+  "bench_configs": {
+    "common": {"model": "sticky", "rounds": 150, "wall_sec": 90, "hot_k": 6, "peel": 6, "budget_mode": "full", "presolve_time": 15},
+    "off": {"presolve": "off"},
+    "on": {"presolve": "unmovable", "presolve_deep": 0, "skip_floor": false},
+    "on_skip": {"presolve": "unmovable", "presolve_deep": 0, "skip_floor": true},
+    "on100": {"presolve": "unmovable", "presolve_deep": 100, "skip_floor": false}
+  },
+  "coverage": {
+    "off": 16,
+    "on": 15,
+    "on_skip": 15,
+    "on100": 12,
+    "total": 20,
+    "note": "setA-16..20 and part of setA-13..15 did not finish inside the experiment time box: -wall-sec is only checked between rounds and one MIP round can run 30+ minutes on the hard instances (off arm: setA-16 nominal 90s, actual 3020s). All cross-arm comparisons in the report use the 12 instances common to all four arms."
+  },
+  "reference": "sprint_results/loads_vector.csv (per-instance first-team load vector, trunc6 lexicographic). setB has no row in that CSV, so setB instances are reported only against their own start/LB_sat.",
+  "objective": "saturation (arc x slot) loads flattened, sorted descending, trunc6 lexicographic (smaller better); layer 1 = max saturation (MLU)",
+  "key_results": {
+    "certificate": "setA-01 LB_sat trunc6 = 929383 == sprint first bit 929383 -> first bit PROVEN optimal; setA-18 LB_sat rank 999998 == empty-solution first bit -> layer 1 optimal at start",
+    "zero_floor_instances": "setA-06/10/13/16/19 have floors = 0 and LB_sat = 0; these are 5 of the 7 instances where the solver trails the sprint reference most (06 +11%, 10 +29%, 13 +229%, 16 +789%, 19 +1105%) -> their bottleneck arcs are all dodgeable, the gap is a search/balance problem, not a structural one",
+    "deep_cap": "-presolve-deep 100 cuts total presolve time 284.7s -> 118.2s over setA+setB (setA alone 103.8s -> 9.7s, 10.7x) with LB_sat bit-identical on 32/32 instances; adopted as the new default",
+    "ab_verdict": "presolve's effect on solution quality is below the measurement noise floor: on the 12 common instances off/on/on_skip give identical first bits on 11/12, and on-vs-on100 (identical presolve output on setA-05/06/07/08/09/10, only 0.0-0.3s of presolve time apart) still differ by 1-4 tie layers. setA-06 is the proof: floors=0 and LB_sat=0 there (presolve is a no-op) yet on gives 105633 and off/on100 give 119718"
+  },
+  "data_files": {
+    "presolve_report_deep100.tsv": "per-instance presolve report for all 32 instances at the shipping config (-presolve-deep 100): elapsed, cells, deep, floors, proven, revoked, timeout, LB_sat rank, empty-solution first bit",
+    "presolve_report_deep0.tsv": "same, uncapped class-3 pass",
+    "presolve_deep_sweep.tsv": "setA x K in {0,100,300,600,1200}: elapsed / floors / LB_sat (the K=100 sweet spot)",
+    "presolve_deep_sweep_setB.tsv": "setB x K in {0,1,100}; K=1 collapses setB-05's LB_sat 488837 -> 15162, so the class-3 pass cannot be disabled on setB",
+    "pins-setA-01.tsv": "the 9 floors behind setA-01's first-bit certificate (all class 1/2)",
+    "pins-setA-18.tsv": "178 floors; top one is a class-1 bridge (arc 163, sat 0.999998765) equal to the empty-solution first bit",
+    "pins-setB-01.tsv": "384 floors; LB_sat 141921 vs empty-solution first bit 999998 -> setB-01's hottest arc is dodgeable",
+    "pins-setB-05.tsv": "140 floors; the instance where the class-3 pass is decisive for LB_sat",
+    "ab_{off,on,on_skip,on100}_summary.tsv": "raw bench TSVs for the four arms",
+    "presolve_ab.tsv": "derived four-arm table (solution/scripts/tabulate_pres_ab.py)"
+  }
+}

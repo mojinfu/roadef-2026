@@ -1,0 +1,7 @@
+demand	src	tgt	slot	nhot	n_w1	n_w2	top_rel	ms	relieving	recall_k	recall_hit	legacy_top	cand_top	tags
+3	7	40	1	1	20	32	131.213300000	0.58	47	12	6	131.213300000	131.213300000	bottleneck=1,hot_center=18,mix=32,offhot=1
+4	40	43	0	5	12	32	234.147800000	1.12	32	12	6	234.147800000	234.147800000	bottleneck=1,hot_center=4,mix=32,od_scan=7
+5	15	2	0	5	18	32	414.000500000	0.63	43	12	8	414.000500000	414.000500000	bottleneck=1,hot_center=8,mix=32,od_scan=8,offhot=1
+6	17	42	0	5	13	32	417.393900000	1.07	28	12	5	417.393900000	417.393900000	hot_center=2,mix=32,od_scan=10,offhot=1
+7	47	28	0	5	5	32	201.344500000	0.55	17	12	4	201.344500000	201.344500000	bottleneck=1,hot_center=1,mix=32,od_scan=3
+19	25	42	0	5	17	32	100.672200000	0.57	38	12	8	100.672200000	100.672200000	bottleneck=1,hot_center=5,mix=32,od_scan=10,offhot=1

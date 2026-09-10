@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -26,6 +27,17 @@ func main() {
 	peel := flag.Int("peel", 6, "lex peel depth")
 	model := flag.String("model", "twin", "solver pool model: twin or sticky")
 	budgetMode := flag.String("budget-mode", "full", "solver Hamming budget mode: full or first_half")
+	presolve := flag.String("presolve", "unmovable", "solver presolve mode: unmovable or off")
+	presolveSec := flag.Float64("presolve-time", 15, "solver presolve time budget in seconds")
+	presolveDeep := flag.Int("presolve-deep", 100, "solver: max cells examined by the exact (class 3) presolve pass, 0 = uncapped")
+	skipFloor := flag.Bool("skip-floor", true, "solver: do not seed a round on a cell sitting on its presolve floor")
+	candMode := flag.String("cand-mode", "mix", "solver: candidate generator (mix|hot_center|od_scan|bottleneck|off)")
+	candPoolCap := flag.Int("cand-pool-cap", 24, "solver: candidate nodes kept per strategy pool")
+	candW1 := flag.Int("cand-max-w1", 24, "solver: max 1-waypoint candidates per demand per family")
+	candW2 := flag.Int("cand-max-w2", 32, "solver: max 2-waypoint candidates per demand per family")
+	candHopCache := flag.Bool("cand-hop-cache", true, "solver: retain hop BFS per banned-arc set (false = uncached control)")
+	candGlobalK := flag.Int("cand-global-k", 0, "solver: global-relief safety net size (0 = off)")
+	only := flag.String("only", "", "comma-separated instance suffixes to run, e.g. 01,04,19 (default: all 20)")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dir, 0o755); err != nil {
@@ -48,12 +60,12 @@ func main() {
 		fatal(err)
 	}
 	defer f.Close()
-	header := "instance\taccepted\tfirstbit\ttotal_cost\tbudget_ok\ttie_layers\ttotal_layers\tfirst_gap_layer\tours\tref"
+	header := "instance\taccepted\tfirstbit\ttotal_cost\tbudget_ok\ttie_layers\ttotal_layers\tfirst_gap_layer\tours\tref\tsecs\tsolves\thop_queries\thop_computed"
 	if len(doneRows) == 0 {
 		fmt.Fprintln(f, header)
 	}
 
-	for _, inst := range instanceList() {
+	for _, inst := range instanceList(*only) {
 		if doneRows[inst] {
 			fmt.Printf("== %s (cached)\n", inst)
 			continue
@@ -69,18 +81,56 @@ func main() {
 			"-peel", fmt.Sprint(*peel),
 			"-model", *model,
 			"-budget-mode", *budgetMode,
+			"-presolve", *presolve,
+			"-presolve-time", fmt.Sprintf("%g", *presolveSec),
+			"-presolve-deep", fmt.Sprint(*presolveDeep),
+			fmt.Sprintf("-skip-floor=%v", *skipFloor),
+			"-cand-mode", *candMode,
+			"-cand-pool-cap", fmt.Sprint(*candPoolCap),
+			"-cand-max-w1", fmt.Sprint(*candW1),
+			"-cand-max-w2", fmt.Sprint(*candW2),
+			"-cand-global-k", fmt.Sprint(*candGlobalK),
+			// Bool flags need the "=" form: a bare "-cand-hop-cache false"
+			// parses as true plus a stray positional argument.
+			fmt.Sprintf("-cand-hop-cache=%v", *candHopCache),
 		}
 		if *wallSec > 0 {
 			args = append(args, "-wall-sec", fmt.Sprint(*wallSec))
 		}
-		cmd := exec.Command(*bin, args...)
-		var buf bytes.Buffer
-		cmd.Stdout = &buf
-		cmd.Stderr = &buf
+		// The child gets -wall-sec and is supposed to honour it, but bench is the
+		// backstop of last resort: a child stuck somewhere it cannot check must
+		// not hang the whole sweep (that instance never returns and every later
+		// instance is never measured).  The kill fires a minute beyond the
+		// child's own budget, so a well-behaved child never sees it.
+		ctx, cancel := context.WithCancel(context.Background())
+		if *wallSec > 0 {
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(*wallSec+60)*time.Second)
+		}
+		cmd := exec.CommandContext(ctx, *bin, args...)
+		// Separate buffers, not one shared one: exec writes stdout and stderr
+		// from two goroutines, and bytes.Buffer is not safe for concurrent
+		// writes.  Sharing it garbles lines nondeterministically -- in practice
+		// the tail-of-run "RESULT"/"sprint compare" lines survived (they are
+		// printed after Gurobi stops) while the mid-run "solves=" and "hops "
+		// counters did not, which silently turned those columns into NA.
+		var out, errb bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &errb
 		_ = cmd.Run() // solver exit codes are not meaningful for the summary
+		cancel()
 
-		res, cmp := extract(&buf)
-		line := row(inst, res, cmp)
+		res, cmp := extract(&out, &errb)
+		st := extractStats(&out, &errb)
+		st.secs = time.Since(start).Seconds()
+		if res == "" {
+			// No RESULT line means the solver crashed or was killed.  Do not
+			// persist a row: an NA row would be skipped as "cached" on the next
+			// run and the instance would silently never be measured.
+			fmt.Printf("  %s\tNO RESULT (skipped, will retry on rerun)  (%.1fs)\n",
+				inst, time.Since(start).Seconds())
+			continue
+		}
+		line := row(inst, res, cmp, st)
 		if _, err := fmt.Fprintln(f, line); err != nil {
 			fatal(err)
 		}
@@ -89,7 +139,18 @@ func main() {
 	}
 }
 
-func instanceList() []string {
+func instanceList(only string) []string {
+	if only != "" {
+		var out []string
+		for _, s := range strings.Split(only, ",") {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			out = append(out, "setA-"+s)
+		}
+		return out
+	}
 	out := make([]string, 20)
 	for i := range out {
 		out[i] = fmt.Sprintf("setA-%02d", i+1)
@@ -97,13 +158,41 @@ func instanceList() []string {
 	return out
 }
 
+// stats carries the solver-side counters the summary records alongside the
+// result: how long the instance took and what the hop cache absorbed.
+type stats struct {
+	secs        float64
+	solves      string
+	hopQueries  string
+	hopComputed string
+}
+
+// solverLines splits a captured stream into the solver's own lines.  Gurobi
+// writes its log NUL-separated and with no newlines, so a line boundary in the
+// raw stream is any of \n, \r or \x00 -- matching only on \n leaves the solver's
+// counters glued to the tail of a Gurobi token and silently drops them.
+// Verified against a real run: the same stream scanned on \n alone loses
+// "solves=", scanned on all three it keeps it.
+func solverLines(bufs ...*bytes.Buffer) []string {
+	var out []string
+	for _, buf := range bufs {
+		for _, chunk := range strings.FieldsFunc(buf.String(), func(r rune) bool {
+			return r == '\n' || r == '\r' || r == 0
+		}) {
+			// FieldsFunc keeps the leading indent, so trim before prefix-matching.
+			if chunk = strings.TrimSpace(chunk); chunk != "" {
+				out = append(out, chunk)
+			}
+		}
+	}
+	return out
+}
+
 // extract pulls the "RESULT ..." and "sprint compare: ..." lines out of the
-// solver output (which may be polluted by Gurobi NUL-separated logging).
-func extract(buf *bytes.Buffer) (res, cmp string) {
-	sc := bufio.NewScanner(buf)
-	sc.Buffer(make([]byte, 0, 1<<20), 1<<20)
-	for sc.Scan() {
-		line := sc.Text()
+// solver output.  Both streams are scanned: which one carries the solver's own
+// prints is Gurobi's business, not ours.
+func extract(bufs ...*bytes.Buffer) (res, cmp string) {
+	for _, line := range solverLines(bufs...) {
 		if res == "" && strings.HasPrefix(line, "RESULT ") {
 			res = line
 		}
@@ -114,7 +203,31 @@ func extract(buf *bytes.Buffer) (res, cmp string) {
 	return res, cmp
 }
 
-func row(inst, res, cmp string) string {
+// extractStats reads the solves / hop-cache counters the solver prints.
+func extractStats(bufs ...*bytes.Buffer) stats {
+	var st stats
+	for _, line := range solverLines(bufs...) {
+		switch {
+		case strings.HasPrefix(line, "solves="):
+			st.solves = line[len("solves="):]
+			if i := strings.IndexByte(st.solves, ' '); i > 0 {
+				st.solves = st.solves[:i]
+			}
+		case strings.HasPrefix(line, "hops "):
+			for _, tok := range strings.Fields(line) {
+				if v, ok := strings.CutPrefix(tok, "queries="); ok {
+					st.hopQueries = v
+				}
+				if v, ok := strings.CutPrefix(tok, "computed="); ok {
+					st.hopComputed = v
+				}
+			}
+		}
+	}
+	return st
+}
+
+func row(inst, res, cmp string, st stats) string {
 	field := func(pattern string) string {
 		i := strings.Index(res, pattern)
 		if i < 0 {
@@ -127,8 +240,15 @@ func row(inst, res, cmp string) string {
 		}
 		return rest[:j]
 	}
+	na := func(v string) string {
+		if v == "" {
+			return "NA"
+		}
+		return v
+	}
 	if res == "" {
-		return fmt.Sprintf("%s\tNA\tNA\tNA\tNA\t0\tNA\t0\tNA\tNA", inst)
+		return fmt.Sprintf("%s\tNA\tNA\tNA\tNA\t0\tNA\t0\tNA\tNA\t%.1f\t%s\t%s\t%s",
+			inst, st.secs, na(st.solves), na(st.hopQueries), na(st.hopComputed))
 	}
 	acc := field("accepted=")
 	fb := field("firstbit=")
@@ -164,8 +284,9 @@ func row(inst, res, cmp string) string {
 			}
 		}
 	}
-	return fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s",
-		inst, acc, fb, tc, bo, tie, tot, gl, ours, ref)
+	return fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.1f\t%s\t%s\t%s",
+		inst, acc, fb, tc, bo, tie, tot, gl, ours, ref,
+		st.secs, na(st.solves), na(st.hopQueries), na(st.hopComputed))
 }
 
 func fatal(err error) {

@@ -8,12 +8,18 @@
 // per candidate waypoint: for a fixed segment head v at slot t, every
 // candidate u that ends at v shares the same reverse distance array.
 //
-// Four independent result kinds are cached:
+// Five independent result kinds are cached:
 //
 //	kindDistTo   dist[x] = shortest x -> v        (reverse Dijkstra from v)
 //	kindDistFrom dist[x] = shortest u -> x        (forward Dijkstra from u)
 //	kindHopsTo   hops[x] = fewest arcs x -> v
 //	kindHopsFrom hops[x] = fewest arcs u -> x
+//	kindHopsUnd  hops[x] = fewest arcs u <-> x, arcs usable either way (BFS)
+//
+// The undirected kind exists only for the candidate layer's proximity ranking
+// (cand, design doc §3.1): "how many hops from this waypoint to the hot arc's
+// endpoints, ignoring flow direction".  It is not a routing quantity and must
+// never be used to decide feasibility.
 //
 // All entries are stored in one LRU so total memory stays bounded regardless
 // of how many sources a long solve touches.  Returned slices are shared with
@@ -31,6 +37,7 @@ const (
 	kindDistFrom
 	kindHopsTo
 	kindHopsFrom
+	kindHopsUnd
 )
 
 type idxKey struct {
@@ -140,6 +147,30 @@ func (ix *Index) HopsFrom(t, u int) []int {
 	h := HopCounts(ix.g, u, ix.blockedAt(t), false)
 	ix.put(&idxEntry{key: k, hops: h})
 	return h
+}
+
+// HopsUnd returns hops[x] = fewest arcs on a walk u <-> x when every arc may be
+// traversed in either direction (-1 unreachable).  Ranking-only primitive; see
+// HopCountsUndirected for why it is not HopCounts with a flag.
+func (ix *Index) HopsUnd(t, u int) []int {
+	k := idxKey{t: t, src: u, kind: kindHopsUnd}
+	if e, ok := ix.get(k); ok {
+		return e.hops
+	}
+	h := HopCountsUndirected(ix.g, u, ix.blockedAt(t))
+	ix.put(&idxEntry{key: k, hops: h})
+	return h
+}
+
+// SetMaxSize raises (or lowers) the LRU bound.  The candidate layer issues far
+// more distinct (slot, source) queries than the ECMP atom path, so the default
+// can make the two evict each other in a hot loop; a caller that knows it will
+// run the candidate strategies should raise this once at start-up.  Existing
+// entries are kept; the new bound applies from the next insertion.
+func (ix *Index) SetMaxSize(n int) {
+	if n > 0 {
+		ix.maxSize = n
+	}
 }
 
 // Clear drops all cached arrays (the underlying graph is unchanged).

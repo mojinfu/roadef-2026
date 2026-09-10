@@ -67,6 +67,15 @@ func NewCache(g *graph.Graph, blocked [][]bool, maxSize int) *Cache {
 	}
 }
 
+// Index returns the graph acceleration index this cache computes through.  The
+// atom path pulls its reverse distances from it (atom -> idx.DistTo), so it is
+// already warm: callers that need single-source queries (the candidate layer)
+// must reuse this exact instance.  Building a second graph.Index would repeat
+// every BFS/Dijkstra the atom code already paid for and double the LRU
+// footprint.  Returned arrays are shared with the cache and must not be
+// mutated.
+func (c *Cache) Index() *graph.Index { return c.idx }
+
 // Atom returns the unit-flow split vector for segment (u, v) at slot t, or nil
 // when u and v are disconnected once the slot's down arcs are removed.
 func (c *Cache) Atom(u, v, t int) []float64 {

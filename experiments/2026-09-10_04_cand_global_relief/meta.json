@@ -1,0 +1,47 @@
+{
+  "experiment": "2026-09-10_04_cand_global_relief",
+  "milestone": "M5b-cand-global-relief",
+  "date": "2026-09-10",
+  "branch": "SOLUTION",
+  "commit": "71eb7f1",
+  "dirty": true,
+  "code_state": "71eb7f1 + uncommitted: internal/presolve/, internal/cand/, internal/hops/, cmd/diag/, cmd/candbench/; internal/cand/strategies.go globalRelief (NEW: Options.GlobalK safety net) + crossedHotArcs map-iteration fix; cmd/solve/main.go -cand-global-k flag; cmd/candbench/main.go -global-k flag (NEW this experiment -- the safety net was implemented and wired into solve but had never been measured because candbench had no switch for it); internal/cand/cand_test.go determinism regression test.",
+  "extends": "experiments/2026-09-10_03_cand_microbench -- same instrument (cmd/candbench), same empty-snapshot methodology, same hot-cell derivation (-hot-k 6), same -recall-k 12 reference. This experiment re-reads _03's per-family TSVs and adds the -global-k A/B.",
+  "question": "User asked: (1) can the probability that the candidate-selection scheme fails to include the optimum be quantified -- give a number; (2) what are the suggestions for improving candidate quality.",
+  "answer_summary": "Quantified at the only layer that is measurable with a singleton reference (L1: the best single-waypoint column a family admits). Pre-fix: 14/521 live families (2.69%) had a strictly-relieving singleton available and the pool contained NONE (n_w1=0, cand_best=0.000000 -- an existence hole, not a degradation); 4/19 instances (21%) affected; worst family lost relief 76.087. Post-fix (-global-k 8): capture 1.0000 on 19/19. NOT equal to P(misses the global optimum): the reference enumerates only singletons while 79% of cand's output is 2-waypoint, so L2 is unmeasured and L3 (needs the optimum itself) is not measurable at all.",
+  "headline_results": {
+    "live_denominator": "725 families total; 204 (28.1%) have no relieving singleton at all (nothing to miss); 521 (71.9%) live -- the correct denominator.",
+    "lost_best_singleton_before": "14/521 = 2.69% of live families. All 14 are TOTAL misses (cand_best = 0.000000, n_w1 = 0), not partial ones. Distinct demands = 10.",
+    "lost_best_singleton_after": "0/521 (capture 1.0000 on 19/19 instances that have any relief; setA-18 excluded -- its hottest arc is the presolve-proven class-1 bridge, so no singleton relieves it).",
+    "instance_level": "4/19 = 21% of instances contain at least one family that lost the best singleton: setA-04 (4 rows), setA-13 (4), setA-16 (5), setA-10 (1).",
+    "worst_single_loss": "setA-10 demand 290 slot 0: brute-force best singleton relief 76.0870, pool gave 0.0000.",
+    "recall_before_after": "21.9% -> 69.0% weighted (1261/5746 -> 3965/5746); 26.0% -> 66.6% per-instance mean.",
+    "recall_is_now_circular": "globalRelief selects the top-K by relief and the reference is the top-12 by relief -- the same function. global-k 8 therefore buys the top-12's first 8 MECHANICALLY: the floor is 8/12 = 66.7%, and the measured 69.0% means the strategies themselves contribute only 2.3pp. After this change recall@12 is no longer a usable strategy-quality metric, and capture = 1.0 is constructive, not evidence of quality.",
+    "cost": "20-instance candidate time 1352 ms -> 2314 ms (+963 ms); +0.2 to +1.1 ms per family; single instance 60 families +16 ms (setA-10) to +67 ms (setA-16).",
+    "maxw1_fragility": "With global-k 8 the largest w1/family is 23 (setA-14) against MaxW1=24. cand.go:353 sorts with sort.SliceStable (relief only, no tag tie-break) and the global nodes are appended AFTER the strategy nodes (cand.go:283), so a relief tie at the cap boundary would drop a GLOBAL node and silently revert capture. Not yet triggered -- one node of headroom. Fix: raise MaxW1 by GlobalK when GlobalK>0, or front-load TagGlobal before truncation."
+  },
+  "what_this_does_not_measure": {
+    "L2_two_waypoint": "The reference enumerates only singletons. 79% of cand's output is 2-waypoint and has NO counterpart, so P(the pool misses the family's truly best column) is not measurable today. This is the largest blind spot.",
+    "L3_global_optimum": "Would require knowing the optimum, which requires the full solve with a complete pool.",
+    "snapshot": "All measurements are on the EMPTY (initial) snapshot, not the mid-solve states the solver actually visits. cmd/candbench already supports -sol for that; not done here.",
+    "mip_conversion": "Whether the restored columns actually improve the final objective is an end-to-end question. cmd/candbench deliberately contains no MIP and cannot answer it."
+  },
+  "suggestions_ranked": [
+    "Make -cand-global-k 8 the default, but first run a targeted full-solve A/B on the four instances where the hole was real (setA-04/10/13/16), paired and repeated >=3x, because the outer loop's Gurobi spread is ~7.7% (measured in _03).",
+    "Build a 2-waypoint brute-force reference on the small instances (n<=50: setA-01/02/03/04) -- C(n-2,2) real routings -- to close the L2 blind spot. Without it the next strategy version has no comparable ruler.",
+    "Fix the MaxW1 truncation fragility (raise the cap by GlobalK, or exempt TagGlobal candidates).",
+    "The next lever is PAIR generation, not hop-ball radius: global-k already repaired the singleton side (setA-15 recall 3.1% -> 65.6%), and the ball now only gates pairing material via hot_center's offload test.",
+    "Consider offering the global nodes as pairing material too (currently deliberately excluded to control MIP size) -- 'best singleton + one detour node' is exactly the combination that unloads two arcs at once.",
+    "Do not spend further performance budget on the hop cache (BFS was never the bottleneck; _03 section 3)."
+  ],
+  "data_files": {
+    "data/lost_families.tsv": "the 14 pre-fix families that lost the best singleton, with legacy_best vs cand_best and n_w1",
+    "data/loss_table.tsv": "per-instance before/after: w1 per family, recall@12, relief capture",
+    "data/gk0/": "setA-02/04/10/13/15/16 with -global-k 0",
+    "data/gk8/setA-*.gk8.txt": "same six instances with -global-k 8 (paired control)",
+    "data/gk8/setA-*.txt": "full 20-instance sweep with -global-k 8",
+    "data/gk8/setA-*.tsv": "per-family rows for setA-02/08/14, used for the MaxW1 saturation check",
+    "baseline": "solution/runs_candbench3/ (the pre-fix full sweep, reused from _03)"
+  },
+  "validation": "gofmt -l clean; go build ./... ; go vet ./... ; go test -count=1 ./internal/... all PASS after the candbench -global-k flag was added."
+}

@@ -1,0 +1,15 @@
+demand	src	tgt	slot	nhot	n_w1	n_w2	top_rel	ms	relieving	recall_k	recall_hit	legacy_top	cand_top	tags
+3	11	20	1	4	13	32	183.008000000	1.15	14	12	11	183.008000000	183.008000000	bottleneck=1,hot_center=8,mix=32,od_scan=4
+4	11	13	1	4	15	32	298.934800000	0.57	19	12	11	298.934800000	298.934800000	bottleneck=1,global_relief=1,hot_center=6,mix=32,od_scan=6,offhot=1
+5	4	14	0	2	18	32	77.501600000	0.59	24	12	11	77.501600000	77.501600000	bottleneck=1,global_relief=1,hot_center=12,mix=32,od_scan=3,offhot=1
+5	4	14	1	4	18	32	100.947500000	1.12	24	12	11	100.947500000	100.947500000	bottleneck=1,global_relief=1,hot_center=11,mix=32,od_scan=4,offhot=1
+7	14	4	0	2	17	32	46.240500000	1.14	22	12	9	46.240500000	46.240500000	bottleneck=1,global_relief=1,hot_center=9,mix=32,od_scan=5,offhot=1
+10	2	29	1	4	12	32	67.081200000	1.08	16	12	11	67.081200000	67.081200000	bottleneck=3,hot_center=3,mix=32,od_scan=6
+14	21	29	1	4	13	32	310.657700000	0.00	16	12	11	310.657700000	310.657700000	bottleneck=2,hot_center=6,mix=32,od_scan=5
+26	15	2	0	2	13	32	154.351900000	0.00	22	12	9	154.351900000	154.351900000	global_relief=3,hot_center=8,mix=32,od_scan=1,offhot=1
+26	15	2	1	4	13	32	112.670400000	0.55	22	12	9	112.670400000	112.670400000	global_relief=3,hot_center=3,mix=32,od_scan=6,offhot=1
+29	14	15	0	2	18	32	153.700700000	1.05	22	12	11	153.700700000	153.700700000	bottleneck=1,global_relief=1,hot_center=13,mix=32,od_scan=2,offhot=1
+30	4	2	0	2	14	32	177.146500000	1.08	20	12	9	177.146500000	177.146500000	bottleneck=1,hot_center=7,mix=32,od_scan=5,offhot=1
+30	4	2	1	4	14	32	66.430000000	1.06	20	12	9	66.430000000	66.430000000	bottleneck=1,hot_center=10,mix=32,od_scan=2,offhot=1
+37	14	6	0	2	19	32	53.404500000	1.08	22	12	10	53.404500000	53.404500000	bottleneck=1,global_relief=1,hot_center=9,mix=32,od_scan=7,offhot=1
+43	17	20	1	4	12	32	24.748400000	1.60	16	12	10	24.748400000	24.748400000	hot_center=8,mix=32,od_scan=4

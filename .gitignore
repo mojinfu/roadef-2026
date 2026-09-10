@@ -4,3 +4,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .impeccable/
+
+# Build outputs and benchmark scratch: regenerated on every run, never source.
+# solution/_pyref/*.py stays tracked on purpose -- only the run dirs are ignored.
+*.exe
+_pyref/
+solution/runs_*/
+solution/_pyref/cand_ab/
+solution/_pyref/gk_ab/
+solution/_pyref/noise_a10/
+solution/_pyref/reg/

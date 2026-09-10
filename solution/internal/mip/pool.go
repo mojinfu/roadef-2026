@@ -20,7 +20,9 @@ package mip
 import (
 	"fmt"
 	"sort"
+	"time"
 
+	"tasr/internal/cand"
 	"tasr/internal/graph"
 	"tasr/internal/model"
 	"tasr/internal/snap"
@@ -65,9 +67,50 @@ type Generator struct {
 	Inst             *model.Instance
 	G                *graph.Graph
 	Snap             *snap.Snap
-	MaxCandPerDemand int     // cap of alternatives kept per demand per family
+	MaxCandPerDemand int     // legacy path only: cap of alternatives kept per demand per family
 	FracEps          float64 // treat load below this as zero on a hot cell
-	Wp2Cap           int     // max 2-waypoint (w1,w2) evaluations per family
+	Wp2Cap           int     // legacy path only: max 2-waypoint (w1,w2) evaluations per family
+
+	// Cand selects the targeted candidate generator (internal/cand).  CandIX is
+	// the graph index it queries, shared with the ECMP atom cache; passing it
+	// is what turns the generator on.  Leaving CandIX nil keeps the legacy
+	// brute-force enumeration, which is also what Cand.Mode == cand.ModeOff
+	// requests explicitly (used for A/B and bit-for-bit regression).
+	Cand   cand.Options
+	CandIX *graph.Index
+
+	// CandHops is the hop-count cache the strategies query (internal/hops).
+	// It is optional: nil makes every hop query fall back to a fresh BFS via
+	// the graph index, which is the "without cache" arm of the benchmark.
+	CandHops cand.Hops
+
+	// Deadline, when non-zero, aborts a pool build that runs past it: the
+	// builder returns a nil pool and the caller skips the round.  Pool build is
+	// the one phase with no natural cost bound (it does a real routing per
+	// demand per strategy), so it is where a runaway would otherwise eat the
+	// whole wall-clock budget.  Zero means no cap (used by tests).
+	Deadline time.Time
+}
+
+// expired reports whether the generator's deadline has passed.
+func (gen *Generator) expired() bool {
+	return !gen.Deadline.IsZero() && time.Now().After(gen.Deadline)
+}
+
+// candOn reports whether the targeted generator replaces the legacy
+// enumeration.  CandIX is the switch: without a graph index the strategies have
+// nothing to query, so a Generator built without one behaves exactly as before.
+func (gen *Generator) candOn() bool {
+	return gen.CandIX != nil && gen.Cand.Mode != cand.ModeOff
+}
+
+// candHops resolves the hop-query surface the strategies use: the dedicated
+// hop cache when the caller supplied one, otherwise the graph index's LRU.
+func (gen *Generator) candHops() cand.Hops {
+	if gen.CandHops != nil {
+		return gen.CandHops
+	}
+	return cand.IndexHops{IX: gen.CandIX}
 }
 
 // defaultWp2Cap bounds the 2-waypoint enumeration.  The full search space is
@@ -147,6 +190,9 @@ func (gen *Generator) BuildCells(hots []HotCell) (*Pool, error) {
 
 	n := inst.NNodes()
 	for d := 0; d < inst.NDemands(); d++ {
+		if gen.expired() {
+			return nil, nil // ran out of wall clock: caller skips this round
+		}
 		dem := &inst.Demands[d]
 
 		// Current per-slot contribution of this demand inside the universe.
@@ -245,10 +291,17 @@ func (gen *Generator) BuildCells(hots []HotCell) (*Pool, error) {
 		}
 
 		// bestRel of a per-slot unit vector against the arcs hot at that slot.
+		// A slot the demand is not active on has no incumbent load, so it
+		// reports no relief (the cand path may probe slots outside this
+		// demand's map).
 		relief := func(slot int, unit []float64, targetArcs []int) float64 {
+			cl := curLoad[slot]
+			if cl == nil || unit == nil {
+				return -1
+			}
 			best := -1.0
 			for _, ha := range targetArcs {
-				if r := curLoad[slot][ha] - vol[slot]*unit[ha]; r > best {
+				if r := cl[ha] - vol[slot]*unit[ha]; r > best {
 					best = r
 				}
 			}
@@ -307,6 +360,23 @@ func (gen *Generator) BuildCells(hots []HotCell) (*Pool, error) {
 				continue
 			}
 			target := hotBySlot[s]
+			if gen.candOn() {
+				alts, err := cand.Build(gen.Snap, gen.CandIX, gen.candHops(), g, inst, cand.Family{
+					D:     d,
+					Slots: []int{s},
+					Hots:  map[int][]int{s: target},
+					Relief: func(slot int, u []float64) float64 {
+						return relief(slot, u, hotBySlot[slot])
+					},
+				}, gen.Cand)
+				if err != nil {
+					return nil, fmt.Errorf("demand %d slot %d: %w", d, s, err)
+				}
+				for _, a := range alts {
+					appendMove([]int{s}, a.Wps, a.Units)
+				}
+				continue
+			}
 			alts := enumerate(
 				func(wps []int) float64 {
 					u, err := sn.UnitRoute(d, s, wps)
@@ -343,6 +413,32 @@ func (gen *Generator) BuildCells(hots []HotCell) (*Pool, error) {
 				if (h.Slot == u || h.Slot == v) && loadsHot[h.Slot] {
 					target = append(target, h)
 				}
+			}
+			if gen.candOn() {
+				// Only the slots that actually load a hot cell carry targets; the
+				// other endpoint still gets the same waypoints written (that is
+				// what makes the pair a twin), it just has nothing to relieve.
+				hm := map[int][]int{}
+				for _, h := range hots {
+					if (h.Slot == u || h.Slot == v) && loadsHot[h.Slot] {
+						hm[h.Slot] = append(hm[h.Slot], h.Arc)
+					}
+				}
+				alts, err := cand.Build(gen.Snap, gen.CandIX, gen.candHops(), g, inst, cand.Family{
+					D:     d,
+					Slots: []int{u, v},
+					Hots:  hm,
+					Relief: func(slot int, uu []float64) float64 {
+						return relief(slot, uu, hm[slot])
+					},
+				}, gen.Cand)
+				if err != nil {
+					return nil, fmt.Errorf("demand %d twin %d-%d: %w", d, u, v, err)
+				}
+				for _, a := range alts {
+					appendMove([]int{u, v}, a.Wps, a.Units)
+				}
+				continue
 			}
 			alts := enumerate(
 				func(wps []int) float64 {

@@ -1,0 +1,9 @@
+instance	accepted	firstbit	total_cost	budget_ok	tie_layers	total_layers	first_gap_layer	ours	ref	secs	solves	hop_queries	hop_computed
+setA-01	14	929383	33	true	1	160	2	591378	551952	2.1	84	0	0
+setA-04	21	581237	44	true	1	500	2	580858	580857	14.6	146	0	0
+setA-06	32	105633	10	true	0	1000	1	105633	98591	91.8	62	0	0
+setA-10	23	97826	0	true	0	1932	1	97826	71739	95.6	27	0	0
+setA-13	9	62606	3	true	0	2000	1	62606	41025	94.2	10	0	0
+setA-15	24	898695	31	true	18	2500	19	350868	337125	93.6	45	0	0
+setA-16	3	271721	6	true	0	2904	1	271721	44262	113.2	4	0	0
+setA-19	1	562060	0	true	0	3996	1	562060	46838	112.3	2	0	0

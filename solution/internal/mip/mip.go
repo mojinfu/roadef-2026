@@ -72,7 +72,26 @@ type Problem struct {
 	movInc    []int
 	costAt    []int
 	halfFirst bool
+	// pinnedViol lists cells the caller called immovable but some candidate of
+	// this pool can change (see BuildOptions.Pinned).
+	pinnedViol []PinnedViolation
+	// floors[ci] is the absolute load floor of tracked cell ci (0 = none) and
+	// satFloor is the global first-bit floor; both come from the presolve.
+	floors   []float64
+	satFloor float64
 }
+
+// PinnedViolation is a pinned cell that a candidate of the pool moves, with the
+// largest absolute change it would cause.
+type PinnedViolation struct {
+	Key   snap.Key
+	Delta float64
+}
+
+// PinnedViolations returns the pinned cells that this pool can change, sorted
+// by (slot, arc).  A non-empty result means the presolve proof for those cells
+// is contradicted by the candidate pool; the caller should log it loudly.
+func (pr *Problem) PinnedViolations() []PinnedViolation { return pr.pinnedViol }
 
 // BuildOptions selects the Hamming-budget mode of a round.
 type BuildOptions struct {
@@ -80,6 +99,24 @@ type BuildOptions struct {
 	// first_half: round 1 of a setB run spends half of the remaining movable
 	// budget so early decisions keep headroom for later rounds).
 	HalfFirst bool
+	// Pinned lists the cells the presolve proved immovable (lb == ub).  A cell
+	// no candidate touches is already outside `tracked`, so its saturation
+	// enters constantFloor() and the first layer's z floor for free -- the pins
+	// need no extra floor term.  This field only exists to *detect* a
+	// contradiction: when a candidate would change a pinned cell the proof is
+	// wrong, so the cell is reported through PinnedViolations instead of being
+	// silently trusted (宁漏勿错).
+	Pinned map[snap.Key]bool
+	// Floors maps a cell to a load it can never drop below (presolve's sound
+	// lower bounds, proven or not).  A tracked cell with a floor gets an extra
+	// row, so the MIP's optimum can no longer be an unnaturally low value that
+	// no routing can reach -- without it the first layer happily "improves" the
+	// max by pushing a cell under its floor and the round is rejected for free.
+	Floors map[snap.Key]float64
+	// SatFloor is a lower bound on the saturation of the first bit, valid for
+	// every routing (max over all cells of floor/load -- Bounds.SatFloor).  It
+	// floors layer 0's z on top of constantFloor().
+	SatFloor float64
 }
 
 // Build constructs the MIP problem from a pool with the full-budget mode.
@@ -100,6 +137,7 @@ func buildMode(p *Pool, sn *snap.Snap, opts BuildOptions) (*Problem, error) {
 		inst: p.inst, g: p.g, snap: sn, m: m, T: T,
 		slots: p.Slots, pairs: p.Pairs, halfFirst: opts.HalfFirst,
 		frozen: make([]int, T), movInc: make([]int, T), costAt: make([]int, T),
+		satFloor: opts.SatFloor,
 	}
 	prob.pos = make(map[int]int, len(p.Slots))
 	for i, s := range p.Slots {
@@ -107,24 +145,55 @@ func buildMode(p *Pool, sn *snap.Snap, opts BuildOptions) (*Problem, error) {
 	}
 
 	// 1. Tracked cells: any (slot, arc) whose load differs between two
-	//    candidates of the same pair.
-	diff := map[cell]bool{}
+	//    candidates of the same pair, with the largest such difference kept for
+	//    the pinned-cell check below (magnitude, not bitwise equality: two
+	//    candidate loads are sums of the same volumes in a different order and
+	//    may differ in the last ulp).
+	diff := map[cell]float64{}
+	cur := p.snap.Load() // arc-major [a*T + t]
 	for _, pr := range p.Pairs {
 		c0 := pr.Cand[0].Load
 		for _, c := range pr.Cand[1:] {
 			for si := range p.Slots {
 				base := si * m
 				for a := 0; a < m; a++ {
-					if c.Load[base+a] != c0[base+a] {
-						diff[cell{p.Slots[si], a}] = true
+					d := c.Load[base+a] - c0[base+a]
+					if d == 0 {
+						continue
+					}
+					if d < 0 {
+						d = -d
+					}
+					k := cell{p.Slots[si], a}
+					if d > diff[k] {
+						diff[k] = d
 					}
 				}
 			}
 		}
 	}
-	for c := range diff {
+	for c, dmax := range diff {
+		if opts.Pinned[snap.Key{T: c.slot, A: c.a}] {
+			// The presolve called this cell immovable.  A *real* move is a
+			// contradiction (record it, and keep the cell tracked so the MIP is
+			// never blinded by a suspect pin); float noise is not.
+			load := cur[c.a*T+c.slot]
+			if dmax > 1e-9*math.Max(1, math.Abs(load)) {
+				prob.pinnedViol = append(prob.pinnedViol, PinnedViolation{
+					Key: snap.Key{T: c.slot, A: c.a}, Delta: dmax,
+				})
+			} else {
+				continue
+			}
+		}
 		prob.tracked = append(prob.tracked, c)
 	}
+	sort.Slice(prob.pinnedViol, func(i, j int) bool {
+		if prob.pinnedViol[i].Key.T != prob.pinnedViol[j].Key.T {
+			return prob.pinnedViol[i].Key.T < prob.pinnedViol[j].Key.T
+		}
+		return prob.pinnedViol[i].Key.A < prob.pinnedViol[j].Key.A
+	})
 	sort.Slice(prob.tracked, func(i, j int) bool {
 		if prob.tracked[i].slot != prob.tracked[j].slot {
 			return prob.tracked[i].slot < prob.tracked[j].slot
@@ -133,7 +202,6 @@ func buildMode(p *Pool, sn *snap.Snap, opts BuildOptions) (*Problem, error) {
 	})
 
 	// 2. Delta vectors per pair per candidate and cell base loads.
-	cur := p.snap.Load() // arc-major [a*T + t]
 	nCell := len(prob.tracked)
 	for _, pr := range p.Pairs {
 		c0 := pr.Cand[0].Load
@@ -149,6 +217,7 @@ func buildMode(p *Pool, sn *snap.Snap, opts BuildOptions) (*Problem, error) {
 	for _, cl := range prob.tracked {
 		prob.caps = append(prob.caps, p.g.Cap[cl.a])
 		prob.base = append(prob.base, cur[cl.a*T+cl.slot])
+		prob.floors = append(prob.floors, opts.Floors[snap.Key{T: cl.slot, A: cl.a}])
 	}
 
 	// 3. Per-candidate Hamming deltas on every transition the move touches.
@@ -235,7 +304,7 @@ func (pr *Problem) Solve(opts SolveOptions) (*Result, error) {
 		// tracked cells below it, so their z carries no floor.
 		zlb := 0.0
 		if layer == 0 {
-			zlb = pr.constantFloor()
+			zlb = math.Max(pr.constantFloor(), pr.satFloor)
 		}
 		res, load, err := pr.solveLayer(lockedLoad, zlb, opts.TimeLimit)
 		if err != nil {
@@ -373,6 +442,16 @@ func (pr *Problem) solveLayer(lockedLoad map[cell]float64, zlb float64, timeLimi
 					vals = append(vals, dk)
 				}
 			}
+		}
+		// Absolute floor of the cell (presolve): no routing goes below it, so
+		// demanding it of the MIP is sound and keeps the reported optimum
+		// reachable.  Added for locked cells too: the extra row only prunes.
+		if fl := pr.floors[ci]; fl > 0 {
+			lo := make([]int, len(cols))
+			copy(lo, cols)
+			loV := make([]float64, len(vals))
+			copy(loV, vals)
+			addRow(lo, loV, '>', fl-pr.base[ci])
 		}
 		if lock, ok := lockedLoad[cl]; ok {
 			addRow(cols, vals, '<', lock-pr.base[ci])

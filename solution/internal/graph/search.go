@@ -25,7 +25,15 @@ import (
 // needs stability must not mutate the returned slice.
 func Dijkstra(g *Graph, source int, blocked []bool, reverse bool) []float64 {
 	dist := make([]float64, g.N)
-	for i := range dist {
+	DijkstraInto(g, source, blocked, reverse, dist)
+	return dist
+}
+
+// DijkstraInto is Dijkstra into a caller-provided buffer of length >= g.N,
+// which is overwritten.  Presolve's hot loops reuse one buffer to avoid an
+// allocation (and the GC churn) per distance computation.
+func DijkstraInto(g *Graph, source int, blocked []bool, reverse bool, dist []float64) {
+	for i := 0; i < g.N; i++ {
 		dist[i] = math.Inf(1)
 	}
 	dist[source] = 0.0
@@ -56,7 +64,6 @@ func Dijkstra(g *Graph, source int, blocked []bool, reverse bool) []float64 {
 			}
 		}
 	}
-	return dist
 }
 
 // HopCounts computes, per node, the minimum number of arcs on a path from
@@ -85,6 +92,52 @@ func HopCounts(g *Graph, source int, blocked []bool, reverse bool) []int {
 				nxt = g.From[aid]
 			}
 			if hops[nxt] == -1 {
+				hops[nxt] = hops[node] + 1
+				queue = append(queue, nxt)
+			}
+		}
+	}
+	return hops
+}
+
+// HopCountsUndirected computes, per node, the minimum number of arcs on a path
+// from source that avoids blocked arcs when every arc may be traversed in
+// either direction (adjacency = Outs ∪ Ins).
+//
+// This is the *undirected proximity* measure, used only to rank candidate
+// waypoints by "how close is this node to a hot arc" (design doc §3.1 step 4).
+// It is deliberately distinct from HopCounts(reverse=false|true): those are
+// directed, so HopsFrom(s)[w] + HopsTo(t)[w] is a directed sum that only means
+// something once a specific source/target pair is fixed.  The undirected
+// variant is symmetric (d(u,w) == d(w,u)) and carries no flow direction, which
+// is what a geometric nearness ranking wants.
+//
+// Only ranking may use this.  No feasibility test, filter or routing decision
+// may depend on it -- the offload test (design doc §3.1 step 5) is the sole
+// authority on whether a node is useful, and it routes for real.
+func HopCountsUndirected(g *Graph, source int, blocked []bool) []int {
+	hops := make([]int, g.N)
+	for i := range hops {
+		hops[i] = -1
+	}
+	hops[source] = 0
+	queue := []int{source}
+	for head := 0; head < len(queue); head++ {
+		node := queue[head]
+		for _, aid := range g.Outs[node] {
+			if blocked != nil && blocked[aid] {
+				continue
+			}
+			if nxt := g.To[aid]; hops[nxt] == -1 {
+				hops[nxt] = hops[node] + 1
+				queue = append(queue, nxt)
+			}
+		}
+		for _, aid := range g.Ins[node] {
+			if blocked != nil && blocked[aid] {
+				continue
+			}
+			if nxt := g.From[aid]; hops[nxt] == -1 {
 				hops[nxt] = hops[node] + 1
 				queue = append(queue, nxt)
 			}

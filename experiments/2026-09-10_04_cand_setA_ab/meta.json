@@ -1,0 +1,62 @@
+{
+  "experiment": "2026-09-10_04_cand_setA_ab",
+  "milestone": "M5-cand-outer-loop-ab",
+  "date": "2026-09-10",
+  "branch": "SOLUTION",
+  "commit": "71eb7f1",
+  "dirty": true,
+  "code_state": "71eb7f1 + uncommitted: internal/cand/, internal/hops/, internal/presolve/, internal/graph/bridge.go, cmd/candbench/, cmd/diag/, scripts/ (new this campaign); cmd/solve/main.go (-cand-mode/-cand-pool-cap/-cand-max-w1/-cand-max-w2/-cand-bans/-cand-seed/-cand-hop-cache); internal/mip/pool.go + pool_sticky.go cand integration; internal/mip/mip.go per-peel TimeLimit; internal/ecmp/ecmp.go Cache.Index() accessor; internal/graph/index.go 5th kind kindHopsUnd; internal/graph/search.go DijkstraInto refactor + HopCountsUndirected; cmd/bench/main.go passthrough flags + NUL-aware line splitting + no-row-on-crash. NOTE: scripts/snapshot_env.py referenced by CLAUDE.md is not present in this tree; meta.json hand-written in the same format as 2026-09-10_02/03.",
+  "solver": "cmd/solve, three arms over the same 8 instances. A = -cand-mode off (legacy brute-force enumeration, HEAD-equivalent), B = -cand-mode mix -cand-hop-cache=true, C = -cand-mode mix -cand-hop-cache=false. All other flags identical: -rounds 150 -wall-sec 90 -hot-k 6 -peel 6 -model twin -budget-mode full -presolve unmovable -presolve-time 15 -presolve-deep 100 -skip-floor=true.",
+  "why": "The candidate layer (internal/cand) had been landed and unit-tested but never measured end-to-end against the legacy generator it replaces, and the hop cache (internal/hops) had never been measured in the outer loop rather than in isolation. This experiment answers both: does the targeted generator beat brute force, and does the per-banned-set BFS cache pay for itself.",
+  "arms": {
+    "A": "legacy brute-force enumeration: every node as waypoint, ranked by relief, top-12 per demand per family",
+    "B": "cand mix (hot_center + od_scan + bottleneck, round-robin merged) with hops.Cache enabled -- the shipping path",
+    "C": "same generator with hops.Cache.SetEnabled(false): recomputes every BFS, the uncached control"
+  },
+  "coverage": {"instances": 8, "of_total": 20, "ordered_by": "cheapest first; the two ~4000-layer instances are last and were not reached"},
+  "reference": "sprint_results/loads_vector.csv layer 1. NOTE: the ours/ref columns in summary.tsv are the values at the FIRST GAP LAYER, not at layer 1 -- reading them as layer 1 misattributes the reference. report.md section 2.1 uses the true layer-1 reference.",
+  "headline_results": {
+    "b_beats_a_firstbit": "4/8: setA-06 -4.00%, setA-13 -31.74%, setA-16 -47.21%, setA-19 -74.00% (lower firstbit is better)",
+    "b_ties_a_firstbit_more_tie_layers": "1/8: setA-04, tie layers 1 -> 10, first gap layer 2 -> 11 (580858/580857 -> 350031/337894)",
+    "neutral": "2/8: setA-01 (firstbit 929383, tie 1 both) and setA-15 (firstbit 898695, tie 18 both)",
+    "regression": "1/8: setA-10, A 97826 -> B 163043 / C 152173. Real, not noise: it is far outside the measured noise floor, and A stays far better under both of its own measured values (97826 and 108695). Mechanism identified in 2026-09-10_03 (singleton recall) and FIXED in 2026-09-10_05.",
+    "vector_parity": "0/8 instances tie the whole vector -- every instance still diverges immediately after the tie run",
+    "cache_bfs": "5922 computed vs 663528 = 112.0x fewer BFS; min per-instance benefit 45.1x (setA-15)",
+    "cache_wall": "509.8s vs 518.7s = 1.72% faster. The BFS was never the bottleneck: UnitRoute dominates candidate generation, consistent with the candbench microbenchmark.",
+    "candidate_layer_speed": "setA-15: A did the same 142 solves in 93.6s that B did in 29.1s (C 29.3s) -- 3.2x, attributable to the candidate layer (the 2-waypoint side evaluates few explicit pairs instead of C(n,2)), not to the cache."
+  },
+  "noise_floor": {
+    "measurement": "three byte-identical B-config runs on setA-10 gave firstbit 141304 / 152173 / 152173, a 7.7% spread",
+    "source": "Gurobi, not presolve and not the cache: the spread persists with -presolve off -rounds 60 (152174/152173/152173/152173 alternating cache on/off). internal/mip/mip.go:362 sets a TimeLimit on EVERY peel layer, so a time-limited layer returns the incumbent at an arbitrary wall moment.",
+    "instance_dependent": "setA-06 is fully reproducible in both arms (B 101408 x3, A 105633 x2), so its 4.0% win is real; setA-10 is not.",
+    "methodological_consequence": "single-run firstbit differences below ~8% are not conclusions. Either repeat to reproducibility or measure with Gurobi removed from the loop (cmd/candbench)."
+  },
+  "cache_neutrality_correction": {
+    "wrong_earlier_inference": "tabulate_cand_ab.py originally reported the B/C disagreement on setA-10/19 as 'the cache is not pure memoisation, a bug'.",
+    "why_wrong": "The cache is pure at the candidate-generator level (candbench: 20/20 instances bit-identical candidate lists). At the OUTER-LOOP level B and C may still differ because each round runs a wall-clock-dependent Gurobi MIP, and the cache changes the timing. A B/C disagreement in the outer loop is a noise indicator, not evidence of impurity.",
+    "action_taken": "scripts/tabulate_cand_ab.py (and the copy in data/) now states this and recommends cmd/candbench for cache-purity checks. Verified the corrected script reproduces the same table."
+  },
+  "no_regression_evidence": {
+    "method": "built a HEAD baseline binary from a scratch git worktree at 71eb7f1, ran it against the current binary with -cand-mode off on setA-01 and setA-04 (-rounds 40)",
+    "result": "RESULT lines identical field-by-field AND the written solution JSONs are byte-identical (setA-01 md5 0e5f5acc1fa4, setA-04 md5 6de9f010825d) => the off path is a true no-regression arm"
+  },
+  "red_lines_checked": [
+    "internal/ecmp/ecmp.go diff is only the Cache.Index() accessor; exact float == untouched",
+    "internal/graph/search.go: pre-existing equivalent DijkstraInto refactor plus an additive HopCountsUndirected; kindHopsUnd appended LAST so existing kind values are unchanged",
+    "MaxCandPerDemand truncation exists only inside the legacy enumerate closure",
+    "all three cand.Build call sites are guarded by candOn()"
+  ],
+  "measurement_traps": [
+    "A single-pass sweep without internal repetition has no wall-clock value on this box (see 2026-09-10_03 section 5): paired repeats are required below ~30% differences.",
+    "The bench resume-by-skip logic trusts any existing row, so two concurrent runners sharing one output dir corrupt it (one run's NA rows get treated as cached). run_cand_ab.sh now refuses to start if one is already running."
+  ],
+  "data_files": {
+    "data/cand_ab/{A,B,C}/summary.tsv": "raw per-instance rows: accepted, firstbit, total_cost, budget_ok, tie_layers, total_layers, first_gap_layer, ours-at-gap, ref-at-gap, secs, solves, hop_queries, hop_computed",
+    "data/cand_ab/{A,B,C}/setA-*.json": "the solutions each arm wrote",
+    "data/cand_ab/cand_ab.tsv": "the summary table produced by tabulate_cand_ab.py",
+    "data/run_cand_ab.sh": "the instance-outer three-arm runner (includes the concurrency guard)",
+    "data/tabulate_cand_ab.py": "the summariser, with the corrected cache-neutrality wording",
+    "data/reg_head_vs_off/": "HEAD-71eb7f1 vs current -cand-mode off: RESULT logs and solution JSONs for setA-01/04",
+    "report.md": "this report"
+  }
+}

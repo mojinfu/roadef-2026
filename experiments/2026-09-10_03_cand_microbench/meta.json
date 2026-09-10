@@ -1,0 +1,48 @@
+{
+  "experiment": "2026-09-10_03_cand_microbench",
+  "milestone": "M5-cand-microbench",
+  "date": "2026-09-10",
+  "branch": "SOLUTION",
+  "commit": "71eb7f1",
+  "dirty": true,
+  "code_state": "71eb7f1 + uncommitted: internal/presolve/, internal/cand/, internal/hops/, cmd/diag/, cmd/candbench/ (new this experiment); internal/cand/strategies.go crossedHotArcs map-iteration fix; internal/cand/cand_test.go determinism regression test; cmd/solve/main.go (-cand-mode/-cand-pool-cap/-cand-max-w1/-cand-max-w2/-cand-bans/-cand-seed/-cand-hop-cache); internal/mip/pool.go + pool_sticky.go cand integration; cmd/bench/main.go (passthrough flags, NUL-aware line splitting, no-row-on-crash). NOTE: snapshot_env.py referenced by CLAUDE.md is not present in this tree; meta.json hand-written in the same format as 2026-09-10_02.",
+  "solver": "Not the solver: cmd/candbench is a microbenchmark of internal/cand alone. Input is a snapshot (empty, or a -sol mid-solve solution JSON) plus the round's hot cells; output is the candidate set per (demand, slot) family with timings, BFS counters and a brute-force recall comparison. No MIP, no objective, no search.",
+  "why": "The outer-loop A/B cannot measure the candidate layer: one round costs a Gurobi solve whose run-to-run spread is ~7.7% on setA-10 firstbit (141304/152173/152173 across three byte-identical runs) and persists with -presolve off, so the noise comes from Gurobi (multithreaded, per-peel-layer TimeLimit at internal/mip/mip.go:362), not from presolve. That noise exceeds the effect being measured.",
+  "arms": {
+    "on": "hops.Cache enabled (the shipping path)",
+    "on2": "hops.Cache enabled, repeated -- control that separates 'cache is impure' from 'cand is nondeterministic'",
+    "off": "hops.Cache.SetEnabled(false) -- recomputes every query, retains nothing"
+  },
+  "bench_configs": {
+    "common": {"hot_k": 6, "max_families": 60, "recall_k": 12, "repeat": 6, "reps": 3, "mode": "mix", "pool_cap": 24, "max_w1": 24, "max_w2": 32, "max_bans": 3, "max_extra_hop": 4, "offhot_pct": 0.05, "seed": 1},
+    "note": "-repeat R replays the family list R times to simulate consecutive rounds reusing the cache; -reps N runs each arm N times so the wall clock is a best-of-N, because single runs on this box swing 2-3x."
+  },
+  "coverage": {"instances": 20, "families": 725, "candidates": 17822},
+  "reference": "For recall only: an in-process brute-force enumeration of every node (excluding the demand's own source/target) as a single waypoint, routed for real and kept when it strictly relieves a target, top-12 by relief. This is the legacy generator's own node ranking, so it isolates what the targeted search kept of it. It is a LOWER BOUND on the MIP's option set because cand's 2-waypoint output (79% of its candidates) has no counterpart in it.",
+  "headline_results": {
+    "bug_fixed": "internal/cand/strategies.go crossedHotArcs ranged a map (want) instead of the arcs slice. bottleneck bans in the returned order and stops at MaxBans (default 3), so when a demand crossed more than 3 hot arcs WHICH arcs were banned was random -- and with them the detour node set, the paired candidates and the MIP columns. Fixed to range arcs; regression test TestBuildIsRepeatableUnderMapOrderRandomisation verified to FAIL before the fix and pass after (ladderInstance, 6 tight arcs, MaxBans=2, 64 Build calls).",
+    "determinism": "PASS 20/20 (two identical cache-on runs give bit-identical candidate lists)",
+    "cache_neutrality": "PASS 20/20 (cache-on vs cache-off give bit-identical candidate lists). Before the fix, setA-02/04/10 FAILED -- that was cand's nondeterminism, not the cache.",
+    "cache_bfs": "on 1168 vs off 40560 over the same 40680 queries = 34.7x fewer BFS computations (39392 saved), 97.1% of queries served from the map",
+    "cache_wall": "6052 ms vs 6484 ms best-of-3 = 7.1% faster. The BFS was never the bottleneck: ~25 UnitRoute calls per family dominate.",
+    "recall_at_12": "1261/5746 = 21.9% (best 77.4% setA-02, worst 3.1% setA-15)",
+    "relief_capture_below_1": "setA-04 0.9381, setA-10 0.9797, setA-13 0.9371, setA-16 0.9205 -- these instances LOSE the single best singleton the brute-force ranking finds. setA-10/13/16 are the instances where the full-solve A/B also underperformed, making this the most likely mechanism behind the setA-10 regression (97826 -> ~150k).",
+    "degenerate_families": "206/725 families (28.4%) return no candidate. Concentrated: setA-15 (30/38 empty, 1.1 w1/family), setA-17 (30/35, 2.1), setA-20 (32/60, 1.1). setA-18 is 60/60 empty and correct: its hottest arc 163 (sat 0.999998765) is the class-1 bridge presolve proved in 2026-09-10_02, so no single waypoint can relieve it and the first bit is optimal at the start.",
+    "timing_caveat": "A single-run sweep (solution/runs_candbench2, kept as a counter-example) reported the cache as 2x SLOWER (setA-20 2625 vs 1038 ms); five paired repeats of the identical config gave 479-571 ms vs 536-630 ms with on<off in 5/5. Wall-clock conclusions below 30% require best-of-N pairing; only the BFS counters are noise-free."
+  },
+  "tunables_for_next_step": {
+    "recall_lower_bound": "recall@12 compares against single-waypoint brute force only; the 2-waypoint side is not covered by it and is 79% of cand's output.",
+    "cheap_fix_for_capture": "the single-waypoint brute force is O(n) real routings per family (~1 s for 60 families at n=400), so a global relief top-K singleton strategy can be added at low cost to restore capture to 1.0 on the four instances.",
+    "ball_pressure": "MaxExtraHop=4 is too tight for setA-15/17/20 (w1/family collapses to 1-2, most families empty). A size- or fill-adaptive radius would help but conflicts with design doc 12 Q7, which forbids a size-adaptive default mode."
+  },
+  "data_files": {
+    "raw/setA-*.txt": "full candbench stdout for all 20 setA instances, -repeat 6 -reps 3, after the fix",
+    "cand_metrics.tsv": "one metrics row per instance (machine-readable version of the report table)",
+    "tsv/setA-*.tsv": "per-family detail: demand, slot, hot count, n_w1, n_w2, top_rel, ms, relieving, recall_k, recall_hit",
+    "main.go": "candbench source snapshot",
+    "tabulate_candbench.py": "parser that produced cand_metrics.tsv",
+    "strategies.go.postfix": "crossedHotArcs after the fix",
+    "note": "raw/ predates a display-string change: the 'relieving nodes' line no longer prints a meaningless '(0 skipped)'. No measured value is affected."
+  },
+  "counter_example_data": "solution/runs_candbench2/ (single-pass, no internal repetition; wall clock contaminated by concurrent load -- kept to document the measurement trap, not used for any conclusion)"
+}

@@ -1,0 +1,632 @@
+# 0910 Presolve（结构性瓶颈弧永久冻结）— 设计说明
+
+> 2026-09-10 优化建议第一条。本文是 `thesolutionv1.0.txt` §13（`tasr/presolve.py`，Python 参考实现）
+> 的 **Go 落地细化**，并补齐口述版判据在实测中暴露的缺口。
+> **状态：已实现（2026-09-10）**，代码在 `internal/presolve/presolve.go` + `internal/graph/{bridge,search}.go`
+> + `internal/mip/mip.go` + `cmd/solve/main.go`，单测 `internal/presolve/presolve_test.go`。
+> §1–§6 保留设计原貌（含被实现推翻的部分，见下），**§7 之后以"实现现状"为准**，
+> 实现过程中发现的三处 soundness 缺陷与修正记录在 **§14**。所有"实测"结论可用 §12 的脚本重跑。
+
+---
+
+## 0. 一页速览
+
+- **要做什么**：求解开始前扫一遍 `(t, arc)`，把"无论怎么选 waypoint 都卸不掉流量的弧"永久冻结。
+  冻结后：①不再作为 seed 被反复攻击；②其饱和度抬升全局下界 `LB_sat`；③MIP 里不进 `max(z)`。
+- **实现后的实际形态（比原设计收窄，原因见 §14）**：真正无条件成立的是**地板**
+  `load(t,e) ≥ Σ_{d∈F} vol_d`（对所有路由成立）；`lb == ub` 的**完整 pin 需要额外条件**
+  （除强制集以外的 demand **永远无法**把流量放到 e 上，§4.1 的 `noNewUser`），
+  实测在 setA-01/setB-01 上都**不命中**（连通图里任何 demand 都可以用 waypoint 绕到任意弧上）。
+  因此本功能对搜索的贡献主要是三条：**全局 first-bit 下界证书**（含"layer 1 已证明最优"）、
+  **MIP 的绝对下界行**（否则 MIP 会报一个任何路由都达不到的乐观最优值 → 白轮）、
+  以及 **floor 单元不再被当 seed**（`-skip-floor`）。
+- **为什么值得做（Go 现状）**：`cmd/solve/main.go` 的 `done/fail` 记忆在 **first bit 每改善一次就整体清空**
+  （`main.go:364-365`），于是一条**结构上打不动**的热弧会被反复重新攻击（每攻一次 = 一次 pool 构建 +
+  一次 Gurobi）。`mip.go:501 constantFloor()` 只把"本轮 pool 内不可变单元"折进 `z` 的下界，
+  既不是全局的，也不影响 seed 调度。
+- **重要发现（与口述判据的偏差）**：口述的"禁弧后 tail 出度 ≤1 / BFS 连通性"判据在
+  **setA-01 的头号瓶颈 arc29 上不成立**（实测 tail 出度禁后 = 3，无任何 demand 被断开），
+  在 **setB-01 空解头号瓶颈 arc43 上也不成立**（95 条 demand 全部保持连通，只是变长）。
+  这两条弧恰好分别是 setA-01 / setB-01 的**结构地板**。因此判据必须补第 2 类
+  （最短路 DAG **支配弧**；定义**强于**"禁弧后距离变长"，见 §3.2）。实测数据见 §3.4。
+- **新增文件/接口**：`solution/internal/presolve/presolve.go`（新包，内含**可变的 `Bounds` 对象**：
+  按时段负载上下界 + `Proven` 标记）；`internal/graph` **保持无状态**，只加桥/支配/可达性**纯函数**；
+  `cmd/solve/main.go` 增 `-presolve=`、`-presolve-time=15` 开关，并在**求解开始时调用一次**
+  （整阶段**一次** 15s 全局预算）。
+
+---
+
+## 1. 目标与动机（量化）
+
+### 1.1 直接动机
+
+Go 求解器（`cmd/solve/main.go`）的外层循环是"取全局最热 (t,arc) 当 seed → 生成候选池 → 解 MIP →
+用真实 trunc6 字典序接受/回滚"。对**拓扑上就卸不掉**的热弧：
+
+- 每轮 pool 构建 + Gurobi 全部白花（`why["no-value"]` / `why["lex"]` 计数上升）；
+- `failLimit`（默认 2）之后进 `done`，但 **`main.go:364` 在 first bit 改善时把 `done`/`fail` 整体清空**，
+  于是每改善一次尾部，这些弧又被重新拉出来攻击一次；
+- 这些弧的存在还污染 `RankKeys` 的候选顺序，挤掉了真正可动的热弧的轮次。
+
+### 1.2 第二动机：全局下界
+
+冻结弧的饱和度构成 `max` 的**硬下界** `LB_sat`：
+
+- 对 setA：可以立刻判断"first bit 已经打到结构地板"，停止在 max 层浪费预算（setA-01 已知）
+- 对 setB：**sprint 参照只有 setA 的 20 个实例**（`sprint_results/loads_vector.csv` 实测只有 setA-01..20），
+  setB 上没有任何外部标尺 —— `LB_sat` 是唯一"我们离结构地板还有多远"的硬指标。
+
+### 1.3 与既有代码的关系（不要重复实现/不要互相打架）
+
+| 现有设施 | 位置 | 与 presolve 的关系 |
+|---|---|---|
+| `constantFloor()` | `internal/mip/mip.go:501` | 语义相近但**范围不同**：它是"本轮 pool 未 track 到的单元"的 max sat，**每轮重算、随 pool 变化、不含全局结论**。建议：presolve 的 `LB_sat` 与之取 `max` 作为 layer-0 的 `zlb`（`mip.go:236`），并统一在一处计算，避免两套逻辑漂移。 |
+| `Problem.tracked` | `mip.go:44-47` | 桥弧天然不在 tracked（没有候选能改变它）→ 已被 `constantFloor` 覆盖。**presolve 的真正增量在调度层与下界，不在 MIP 内。** |
+| `done` / `fail` | `cmd/solve/main.go:168-172` | 桥弧 → 直接进 `done`，且**永不随 first bit 改善清空**（`pre_frozen` 豁免 `main.go:364`）。 |
+| sticky / soft-freeze | `mip/pool_sticky.go`, design §12/§14 | `pre_frozen` 优先级 > sticky/soft；冲突时以 `pre_frozen` 为准。 |
+
+---
+
+## 2. 术语与判定目标
+
+设时段 `t`，`G_t = (V, A \ Blocked[t])`，`Blocked[t]` 是该时段维修禁用弧集合
+（`model.Scenario.Blocked`）。需求 `d` 在时段 `t` 的路由是 **waypoint 序列的段拼接**：
+`s = w0, w1, …, wk = t_d`，每段 `(wi, wi+1)` 走 **IGP 度量最短路 + ECMP 分流**
+（`ecmp.ComputeAtom`，与官方 networktools 同款精确浮点）。
+
+**判定目标**（要判的是"负载是否不可动"，不是"弧是否是桥"）：
+
+> `(t, e)` 的负载**不可动** ⟺ 任意 waypoint 选择下，所有当前走在 `e` 上的 demand 的
+> 合计贡献不变（= 当前负载）。
+
+记 `F(t,e) ⊆ demands` 为**强制集**：这些 demand 无论怎么选 waypoint 都必然把 `vol_d[t]` 放到 `e` 上。
+则恒有
+
+```
+load(t, e)  ≥  Σ_{d ∈ F(t,e)} vol_d[t]          （下界，永远成立）
+load(t, e)  =  当前快照的 load                    （上界，可达）
+```
+
+`F` 越接近"当前走 e 的 demand 全集"，pin 越强。
+
+---
+
+## 3. 强制集 F 的三类充分判据（sound，各有代价）
+
+> 口述只给了**类 1**。实测证明类 1 在 setA-01/setB-01 的头号瓶颈上都不成立（§3.4），
+> 必须补**类 2**；类 3 是运行期升级路径的判据。
+
+### 3.1 类 1：连通性 / 桥（口述判据，sound）
+
+- **快速检查**：禁 `e`（叠加 `Blocked[t]`）后，`tail(e)` 出度 ≤ 1。
+- **完整检查**：对 `e` 上每条 demand 做 BFS（禁 `e` + `Blocked[t]`），若**全部**不可达 → `e` ∈ F。
+- **性质**：若 `e` 是 `G_t` 的割边，则跨切口的 demand 必然至少穿过 `e` 一次 → 贡献 ≥ `vol`。
+  sound，但**不完备**，且对"割边"这个定义有方向的坑：
+
+**⚠ 需要澄清（见 Q2）**：`tail` 出度 ≤1 既不是割边的充分条件也不是必要条件
+（禁后出度还可以是 1，仍能绕出去；而真割边也可能出度很大）。我的理解是**它只作为快速筛**，
+最终由完整 BFS 决定；请确认。
+
+### 3.2 类 2：最短路 DAG 支配弧（**本文新增，sound 且便宜；定义强于"距离变长"**）
+
+**定义（支配弧）**：给定时段 `t` 与汇聚点 `q`，弧 `e` 是 `q` 的 **sink 支配弧** ⟺ 对**每一个**
+可达 `q` 的节点 `u ≠ q`，`e` 落在 **`u` 到 `q` 的每一条最短路上**。
+对称地，`e` 是 `s` 的 **source 支配弧** ⟺ 对每一个 `w ≠ s`，`e` 落在 `s` 到 `w` 的每一条最短路上。
+
+**为什么必须"强"**：把判据降级成"禁 `e` 后距离变长"有两种误用，**都不 sound**：
+
+- 只对**当前** demand 的 `(s_d, t_d)` 测 `dist_{-e} > dist` —— 这只说明直接路由走 `e`，
+  **不排除** waypoint 绕开（§3.3 的 `H_e` 连通性才是精确判据）；
+- 漏掉 ECMP 等长绕行 —— 若存在**等长**但不走 `e` 的最短路，ECMP 会分流，`e` 就不是支配弧。
+
+所以类 2 必须**全节点量化 + 全最短路量化**。等价的**可判定形式**（也是实现形式）：
+
+```
+e 是 q 的 sink 支配弧   ⟺  ∀u ≠ q 且 dist(u,q)<∞ :  dist_{-e}(u, q) > dist(u, q)   // 等长判否
+e 是 s 的 source 支配弧 ⟺  ∀w ≠ s 且 dist(s,w)<∞ :  dist_{-e}(s, w) > dist(s, w)   // 等长判否
+```
+
+（"等长"必须判为**不满足**：等长意味着存在绕开 `e` 的等代价最短路，ECMP 会把流量分走。
+不可达节点（`dist = ∞`）不参与量化。）
+
+**为什么 sound**：段路径只能是两点间最短路。sink 支配 ⇒ 任何以 `q` 为终点的 demand，
+其**最后一段** `(w, q)` 是最短路且必然走 `e` → 该 demand 必然把 `vol` 放到 `e`；
+source 支配 ⇒ **第一段** `(s, w)` 必然走 `e`。两者都无法被 waypoint 规避。
+（中间段无法用此判据钉死 → 见类 3。）
+
+**为什么便宜**：`(t, q)` 一组只需 1 次 Dijkstra + 1 次 DAG 支配树
+（DAG 版：按 `dist` 降序做支配点求交，无需完整 Lengauer–Tarjan），
+一次产出该 `q` 的**全部**支配弧；上式的 `∀u` 量化可由同一棵支配树直接读出。
+setB-01 的 distinct sink/source 规模（6519 demand）量级为数百 → 12 时段 × 数百次支配树 ≈ 10^6 级操作。
+
+### 3.3 类 3：需求级"能否卸载"（sound，贵；原设计放运行期，实现改为 presolve 的 Pass B）
+
+精确判据（**实现版**）：demand `d` 能绕开 `e` ⟺ 在 **R_e 有向图**中 `t_d` 从 `s_d` 可达，其中
+
+```
+R_e(u, v)  ⟺  dist_{-e}(u, v) == dist(u, v)      // 存在绕开 e 的最短路段
+```
+
+可达性是**有向**的，且用**链（chain）**语义：`s → z1 → … → t` 每一跳都是 R_e 一步，
+这条链本身就是一条合法路由（中间节点即 waypoint），所以"不可达 ⟹ 必然走 e"是 sound 的。
+链长超过实例 segment 预算时不截断 —— 更长的链只会让判据更宽松（漏判地板），不会错判。
+
+- 注意 **`dist_{-e}(s,t) > dist(s,t)` 不足**：它只说明直接路由走 `e`，不排除用 waypoint 绕；
+  这是一个常见误判点（见 Q5）。
+- **⚠ 实现坑（已修）**：R_e **不对称**（`R_e(u,v)` 不蕴含 `R_e(v,u)`），
+  第一版用**无向 union-find 闭包**求"连通类"，把 `R_e(v,u)` 的边当成了反向可用 →
+  过度判定"可绕"、系统性**漏掉本该抓到的强制弧**（实测在 setA-01 arc29 上给出 forced = 0，
+  而 sprint 参照的第一名向量恰好证明该弧负载 519.5256 不可动）。现改为
+  **有向位图 R_e + 逐源 BFS 可达**（§14.3）。
+- 成本：一次判定 ≈ `O(n)` 次 Dijkstra（每个尾节点一次 `dist_{-e}(x,·)`；
+  base `dist(x,·)` 按 (t,x) 全局缓存，跨单元复用）。对 setB-01（n=264）约 500 次 Dijkstra/次判定
+  → 只能对**少量热点**用。
+
+→ **用法（已实现）**：Pass A 跑类 1+2（全时段，完整）；Pass B 跑类 3，按 sat 降序、
+在同一个 15s 预算内（`-presolve-deep` 可再限额）。运行时升级路径保留（`Judge.TestKey`），
+在 seed 连续失败 `failLimit` 次时对该 `(t,arc)` 复检一次。
+
+### 3.4 实测（本案关键证据）
+
+复现脚本见 §12。以下数字全部实测：
+
+**setA-01**（n=20, m=80, T=2, 40 demands, budget≈51）
+
+| 判据 | 结果 |
+|---|---|
+| 类 1（拓扑桥） | 每时段仅 **2** 条桥，共 4 个 `(t,arc)`；pin 后 `LB_sat = 0.2736` |
+| 已知结构地板 | **0.929383**（sprint 第 1 名 S8 = 0.929383；设计文档 §4/§10 指出是 arc29） |
+| arc29 = `7→14`，metric 178，cap 559 | 禁弧后 `tail(7)` 出度 = **3**，`reachable(禁 29)` 对**所有** demand 仍连通 → **类 1 判不出来** |
+| 类 2（sink 支配 q=14, slot 0） | **19/20** 节点（除 14 自身）满足 `dist_{-29}(u,14) > dist(u,14)` → 类 2 命中 |
+| pin 值校验 | `Σ vol_d (t_d=14, slot 0) = 519.5256`，`/cap 559 = 0.929384`，trunc6 → **0.929383**，与 sprint 逐值一致 ✅ |
+
+> 结论：类 2 是让 presolve 真正抓到 setA-01 头号浪费点的**必需**判据。
+> 附带好处：这一次 pin 就等于**证明了 first bit 的最优值**（`LB_sat` = 当前 first bit）。
+
+**setB-01**（n=264, m=864, T=12, 6519 demands, budget 26/transition）
+
+| 项 | 实测值 |
+|---|---|
+| 类 1 桥数 | 每时段 **52–54** 条（12 时段共 **632** 个 `(t,arc)`）；pin 后 `LB_sat = 0.1419` |
+| 叶子节点（outdeg=1） | **52 / 264**（19.7%）→ 出度快速筛会大量命中 |
+| 陷阱链路 | 40 条 `cap ≤ 2` 的弧，metric ∈ {1e6, 1.6e7, 1e7} |
+| 空解起点 first bit | **0.999998**，实测 = slot 9 的 `arc 43`（`19→1`, metric 1e6, cap 1） |
+| arc43 的类 1 | 禁 43 后 95 条 tight demand **全部保持连通**（0 条断开，95 条仅变长）→ **类 1 判不出来** |
+| arc43 的类 2 | sink 支配：4/264（对 67 个不同 sink 逐一试过，恒为 4/264）→ **类 2 也判不出来** |
+| arc43 的类 3 | 需要需求级判定（§3.3）|
+| `Σ vol(d: tight through 43, slot 9)` | `0.999998` / cap 1 → 与求解器实测的起点 first bit **完全一致** |
+| sprint 参照 | **无**（`sprint_results` 只有 setA） |
+
+> 结论：setB 的头号瓶颈是"**度量陷阱弧**"——区域被一条极贵但仍是唯一"便宜出路"的弧卡住，
+> 两种便宜判据都抓不到；这正是设计文档 §13 里"求解中 MIP 最优仍 miss → `test_key` 升级"必须存在的原因。
+
+---
+
+## 4. Pin 的语义与取值
+
+### 4.1 取值
+
+```
+lb(t,e) = Σ_{d ∈ F(t,e)} vol_d[t]        // 强制下界（sound，对所有路由成立）
+ub(t,e) = load_current(t,e)              // 当前快照负载（可达）
+```
+
+- **`lb` 是"地板"**：无论后续怎么改路由，`load(t,e)` 都不会低于它。这一点无条件成立，
+  与"当前快照恰好落在上面"无关。
+- **`lb == ub`（`Proven`）需要额外的一半证明**：还要求**其他 demand 永远无法把流量放到 e 上**。
+  原设计（本节旧稿）写的"`Σ vol == load_current` 即可 pin"是**错的**：
+  它只说明"当前没有别的 demand 走在 e 上"，而下一轮完全可以把某条 demand 绕到 e 上
+  （实测：setA-01 t=0 arc12 的强制和 91.0723 恰好等于负载，但某个候选池里的单条 demand
+  一旦改道，该单元立刻移动 253.898 —— MIP 的 pin 校验把它抓了出来，见 §14.2）。
+- 额外那半证明（`noNewUser`，对同 slot 每条未强制 demand 逐个检查）：
+  以下三条**任一**成立，`d` 的路由就不可能碰到 `e = (u,v)`：
+  `(a)` `u` 从 `s_d` 不可达；`(b)` `t_d` 从 `v` 不可达；`(c)` `w(e) > dist(u,v)`（e 不在任何最短路上）。
+  三条都不成立 → 判定为"可能碰到"，**不 pin**（宁漏勿错）。
+
+### 4.2 一致性校验（已实现，`record()`）
+
+把 `load_current(t,e)` 与 `Σ_{d ∈ F} vol_d[t]` 做比对（相对容差 1e-9）：
+
+- `Σ > load_current` → **判据或数据有问题**（sound 判据不可能给出高于实测的下界），
+  计入 `Report.Revoked`、丢弃该 pin 并打 warning。这条断言是整块功能的安全阀
+  （它抓出过类 1 与类 2 对同一条 demand 重复累加导致的 `Σ = 2 × load`，见 §14.1）。
+- `Σ < load_current` → 正常情况：只写下界（`PinLower`），**不**标 Proven。
+- `Σ == load_current` → 写下界 + 跑 `noNewUser`；通过才 `PinProven`。
+
+其它记入报告的字段：`Report.Cells`（有正负载的单元数）、`Report.Deep`（Pass B 复检数）、
+`Report.Pinned`（有地板的单元数）、`Report.Proven`（不可动单元数）、`Report.TimedOut`、`Report.Elapsed`。
+
+### 4.3 维度（已定）
+
+- `PinArc(t, arc, load)` 传入的是**快照上的绝对负载体积**（与 `snap.Load()` 同量纲，
+  arc-major `[a*T+t]`；来源是当前 `Snap`），**不是饱和度**。
+- `Bounds.Lower/Upper/Pin/PinLower/PinProven` 全部以**负载**为口径。
+- **饱和度只在 MIP 侧出现**：`sat = load / cap`（`mip` 用 `g.Cap[a]` 换算），
+  `LB_sat` 是 `Bounds.SatFloor(cap)` 的派生量，只用于 `zlb` 与报告。
+
+---
+
+## 5. 算法流程
+
+**调用时机与预算（已定）**：**整个预检测阶段总共一次 15 秒**（全局预算，非每时段），
+在**求解开始时调用一次**（`sn.NewEmpty` 之后、主循环之前）。超时即停，已确认结论全部保留。
+
+```
+Run(inst, g, snap, bounds, opts):          # bounds 由求解循环持有（见 §7）
+  t0 = now; Report{}
+  # Pass A（一定要跑完）：类 1+2，逐时段，对每个有正负载的单元结账
+  for t in 0..T-1:
+      if now-t0 > opts.TimeLimit: Report.TimedOut = true; break
+      f = {}
+      for q in distinct(t_d with vol>0, t):                 # 类 2a sink-dom
+          d = reverseDijkstra(q, blocked[t]); a = uniqueTightIncoming(q)
+          if a >= 0: f.add(a, every demand targeting q)     # 按 (arc,demand) 去重
+      for s in distinct(s_d with vol>0, t):                 # 类 2b source-dom
+          d = forwardDijkstra(s, blocked[t]); a = uniqueTightOutgoing(s)
+          if a >= 0: f.add(a, every demand sourcing at s)
+      for br in Bridges(g, blocked[t]):                     # 类 1
+          side = BridgeSide(br); f.add(crossing direction, crossing demands)
+      record(t, f)                                          # 逐弧：lb=Σvol → 地板/撤销/Proven
+  # Pass B（预算内）：类 3，按 sat 降序复检尚未 Proven 的正负载单元
+  if not timed out:
+      for (t,e) in cells sorted by sat desc:
+          if expired or deep >= MaxDeep: stop
+          vol, ndem = Exact(t, e)                           # 有向 R_e + 链可达
+          record(t, {e: vol})
+  # 汇总
+  Report.Pinned = #地板, Report.Proven = len(bounds.ProvenKeys()),
+  Report.LBSat = bounds.SatFloor(g.Cap), Report.TimedOut, Report.Elapsed
+```
+
+`record(t, f)` 的语义（每个 arc 一条）：
+`Σ > load` → `Revoked++`；否则 `bounds.PinLower(t, arc, Σ)`；
+若 `|Σ − load| ≤ tol` **且** `noNewUser(t, arc, f)` → `bounds.PinProven(t, arc, load, load, tag)`。
+可见性由 `WritePins`（`-presolve-pins`）导出。
+
+- **时间上限**：默认 15s，超时停止扫描，**已确认的结论全部保留**（口述要求）。
+- **确定性**：扫描顺序与 pin 集合都要可复现（同一 `(sat,t,arc)` 排序；`Bounds.ProvenKeys()` 返回排序切片）。
+- **幂等**：presolve 可重入（超时后允许二轮补扫剩余 key）。
+
+---
+
+## 6. 复杂度与预算（为什么 15s 上限是必须的）
+
+setB-01：`m×T = 864 × 12 = 10368` 个 `(t,arc)` 单元。
+
+- **朴素实现**（逐弧 BFS）：每单元 `O(#demands_on_arc × (V+E))`；`V+E ≈ 1128`，
+  陷阱弧上 tight demand 可达 ~100 条 → 单单元 ~10^5，全扫 ~10^9 → **远超 15s**。
+- **建议实现**：类 2 的"每 (t, sink/source) 一次支配树"共享计算，
+  类 1 完整 BFS 只在类 2 与快速筛都命中时才对**该弧上的 demand**逐个做 → 实际扫描量降几个数量级。
+- 结论：**15s 上限 + 惰性支配表缓存 + 快速筛**三者缺一不可；纯朴素版在 setB 上会大面积 `TimedOut`。
+
+---
+
+## 7. 状态归属：`graph` 保持无状态，上下界独立成对象
+
+**决定（口述修订）**：**不往 `graph.Graph` 上挂 pin 状态**。`Graph` 是无状态共享邻接表
+（`From/To/Metric/Cap/Outs/Ins`），`ecmp.Cache` 与 `graph.Index` 都按它缓存且会被多个调用方共用；
+一旦加可变字段，缓存共用与并发假设都要重新论证。
+
+因此：
+
+- `internal/graph` 只加**无状态纯函数**（桥、支配、可达性），输入 `(g, blocked/t, ...)`，不持有状态；
+- 可变的"按时段负载上下界"独立成 **`Bounds` 对象**，放在 `internal/presolve`，
+  由**求解循环持有**（`cmd/solve` 创建，传给 MIP 与调度），生命周期与 `bestSnap` 同级。
+
+### 7.1 `Bounds` 接口（`internal/presolve`，见 §8）
+
+```go
+// Key 是单元标识符（= snap.Key{T,A}；原稿写的 graph.Key 是笔误）。
+type Key = snap.Key
+
+// Bounds 是 (slot, arc) 的负载上下界表。零值可用；非并发安全（与 Snap/Cache 同约定）。
+type Bounds struct{ m map[Key]Bound }
+type Bound struct {
+    LB, UB float64 // UB=+Inf 表示"只加了下界"
+    Proven bool    // LB==UB：不可动
+    Source string  // bridge | sink-dom | source-dom | dodge ...
+}
+
+// ---- 写 ----
+func (b *Bounds) Pin(t, arc int, load float64)                       // lb=ub=load（口述的 pin_arc）
+func (b *Bounds) PinLower(t, arc int, lb float64)                    // 只加下界，UB=+Inf
+func (b *Bounds) PinProven(t, arc int, lb, ub float64, source string) // 完整 pin
+// set() 合并时取最紧区间：LB=max, UB=min, Proven=or（弱结论不得放宽强结论）。
+
+// ---- 读 ----
+func (b *Bounds) Get(t, arc int) (Bound, bool)
+func (b *Bounds) Lower(t, arc int) (float64, bool)
+func (b *Bounds) Upper(t, arc int) (float64, bool)
+func (b *Bounds) ProvenKeys() []Key        // 按 (t,arc) 升序，确定性
+func (b *Bounds) Len() int
+// FloorMap 返回所有下界的副本（不只 Proven），给 MIP 加绝对下界行用。
+func (b *Bounds) FloorMap() map[Key]float64
+// SatFloor = max_{all bounds} LB/cap：**全局 first-bit 下界**（不只是 Proven 的）。
+func (b *Bounds) SatFloor(cap []float64) float64
+```
+
+### 7.2 `graph` 侧新增的无状态算法
+
+```go
+// 类 1 快速筛：禁 ban（叠加 blocked）后 node 的出度；InDegree 同款反向版。
+func OutDegreeAvoiding(g *Graph, blocked []bool, node, ban int) int
+func InDegreeAvoiding(g *Graph, blocked []bool, node, ban int) int
+// 类 1 完整检查：禁 ban（叠加 blocked）后 s 能否到达 target（BFS）。
+func ReachableAvoiding(g *Graph, blocked []bool, s, target, ban int) bool
+// 类 1：无向化（配对弧）后的割边；U<V 为规范化端点，ArcUV/ArcVU 为 -1 表示该方向缺失/禁用。
+type Bridge struct{ U, V, ArcUV, ArcVU int }
+func Bridges(g *Graph, blocked []bool) []Bridge
+// 割边一侧的点集（BFS，跳过 {u,v} 配对与禁用弧）：判断 demand 是否跨切口。
+func BridgeSide(g *Graph, blocked []bool, u, v int) []bool
+// 缓冲复用的精确 Dijkstra（presolve 的热循环省分配）。
+func DijkstraInto(g *Graph, source int, blocked []bool, reverse bool, dist []float64)
+```
+
+**实现与原稿的偏差（都已落地）**：
+
+- 类 2 **不需要支配树**：`e` 是 `q` 的 sink 支配弧 ⟺ `e` 是 `q` 的**唯一 tight 入弧**
+  （`dist(x,q) == w(x,q)` 的入弧只有一条）——原稿 §3.2 的定义与这个形式**等价**
+  （最短路末弧必 tight，唯一 tight ⇒ 每条最短路都走它），但实现只需 1 次反向 Dijkstra
+  + 扫一遍 `Ins[q]`，无需 Lengauer–Tarjan，也不需要 `graph.Index`（避免冲掉 ECMP 的 LRU）。
+  等长备选**故意不判支配**（ECMP 会分流）。
+- presolve 直接用 `graph.Dijkstra/DijkstraInto`，**不碰 `Index`**；base 距离按 `(t, x)` 自建缓存
+  （跨单元复用，只在同一 solve 内），与 ECMP 缓存完全隔离。
+- 类 3 的 `dist_{-e}(x,·)` 也走 `DijkstraInto`（复用 buffer），`R_e` 行用 `[]uint64` 位图。
+
+---
+
+## 8. Presolve 模块接口（`internal/presolve/presolve.go`）
+
+```go
+package presolve
+
+type Mode int
+const ( Off Mode = iota; Unmovable )          // ParseMode(""|"unmovable"|"on") → Unmovable
+// 库层默认：TimeLimit 0 → limit() 兜底 15s；TolRel 0 → 1e-9；MaxDeep 0 = 预算内不限。
+// CLI 默认值（cmd/solve、cmd/bench）由 flag 给出：-presolve-time 15 -presolve-deep 100。
+
+type Options struct {
+    TimeLimit time.Duration // 整个预检测阶段的**全局**预算（默认 15s，-presolve-time）
+    Mode      Mode          // Off | Unmovable（默认 Unmovable）
+    MaxDeep   int           // Pass B 复检单元数上限，默认 **100**（见 §14.6），0 = 预算内不限
+    TolRel    float64       // 一致性校验相对容差，默认 1e-9
+}
+
+// Judge 持有跨单元复用的缓存（base 距离 [t*N+s] 惰性填充、R_e 位图、e-禁 Dijkstra buffer）。
+func NewJudge(inst *model.Instance, g *graph.Graph, opts Options) *Judge
+// Exact：类 3，返回 slot t 上必须走 e 的 demand 体量与条数。
+func (j *Judge) Exact(t, e int) (vol float64, ndem int)
+
+type Pin struct {
+    T, Arc   int
+    Load     float64 // 快照绝对负载体积
+    LB       float64 // 地板（Σ 强制集）
+    Sat      float64 // load/cap
+    Source   string  // bridge | sink-dom | source-dom | dodge（可组合，如 "bridge+sink-dom"）
+    Proven   bool    // LB==UB 且 noNewUser 通过
+    Demands  int     // 强制集大小
+}
+
+type Report struct {
+    Pins     []Pin   // 按 (Sat 降序, t, arc) 排序
+    LBSat    float64 // = Bounds.SatFloor(cap)，全局 first-bit 下界
+    Cells    int     // Pass A 见到的正负载单元数
+    Deep     int     // Pass B 复检的单元数
+    Pinned   int     // 有地板的单元数
+    Proven   int     // 不可动单元数
+    Revoked  int     // 一致性校验失败（Σvol > load）被撤销的个数
+    TimedOut bool
+    Elapsed  time.Duration
+}
+
+// Run 扫描图结构，把结果写入调用方持有的 bounds（负载口径）。
+func Run(inst *model.Instance, g *graph.Graph, sn *snap.Snap, b *Bounds, opts Options) (*Report, error)
+
+// TestKey 是运行期复检入口：对单个 (t, arc) 做一次判定，命中则写回 b 并返回该 Pin。
+func (j *Judge) TestKey(sn *snap.Snap, b *Bounds, t, arc int) (*Pin, bool)
+// WritePins 导出 TSV：slot arc load sat lb source proven demands（-presolve-pins）。
+func WritePins(path string, pins []Pin) error
+```
+
+配套：`Report.Pins` 经 `-presolve-pins <path>` 落 TSV；`monitor` 的 pinned 灰显**未实现**（Q10 保留）。
+
+---
+
+## 9. 与求解主循环的集成点（`cmd/solve/main.go`）
+
+0. **持有**：`cmd/solve` 创建 `bounds := presolve.NewBounds()` + `judge := presolve.NewJudge(inst,g,opts)`，
+   与 `bestSnap` 同级（**不挂 `graph`**，见 §7）。
+1. **启动**（`sn.NewEmpty` 之后、主循环之前，**只调一次**）：`presolve.Run(...)`，打印
+   `presolve: <elapsed>s cells=… deep=… pinned=… proven=… revoked=… timeout=…` +
+   `lb_sat=… (first-bit rank …) pinned=… floors=…` + 前 5 个 Pin。失败即 `fatal`。
+2. **seed 调度**：`preFrozen := bounds.ProvenKeys()` 并入 `done` 基底；`preFrozen` **不被清空**。
+3. **MIP 下界**：`mip.BuildMode(pool, snap, mip.BuildOptions{HalfFirst, Pinned: preFrozen,
+   Floors: bounds.FloorMap(), SatFloor: report.LBSat})`：
+   - layer-0 `zlb = max(constantFloor(), SatFloor)`（`mip.go` `Solve`）。
+   - 每个被 track 且带地板的单元加一行 **绝对下界** `base + Σ delta·x ≥ floor`
+     （`<=0` 时也加：它阻止 MIP 把该单元压到地板以下，这正是"乐观最优"的来源）。
+   - `Pinned` 只用于**校验**：某候选能移动 pinned 单元 → `why["pin-violation"]` + WARN
+     （不静默信任；宁漏勿错）。
+4. **floor 单元不做 seed**（`-skip-floor`，默认开）：`hots` 里剔除 `load == floor` 的单元
+   （它们这一层已经打不动了）；若全部都在地板上则退回原列表（该轮仍可能改善尾部）。
+5. **运行期升级**：`markFail` 里 `fail[k] >= failLimit` 时 `judge.TestKey(bestSnap, bounds, k.T, k.A)`；
+   命中 → `preFrozen[k]=true` 并打印。
+6. **证书**：收尾时若 `RankInt(LBSat) >= bestFirst` → 打印
+   `first bit PROVEN optimal: rank … == structural floor …`（first bit 已证明最优 = 第 1 层封顶，
+   剩余 gap 全在尾部）；否则打印 `first-bit floor rank … vs achieved …`。
+
+---
+
+## 10. 不做的事 / 风险
+
+- **不改 `ecmp` 的浮点 `==` 语义**（CLAUDE.md 红线）。
+- **不冻结 demand**：pin 的是弧，不是需求。跨桥 demand 在桥以外的弧上仍然可动
+  （其 route 在桥两侧的段仍可变），所以候选池仍然要生成它 → 收益在**调度层**而非候选层。
+- **风险 1（弱判据）**：只用类 1 会在 setA-01/setB-01 上完全失效（§3.4 已实测），
+  收益接近 0 却付出实现与 15s 预算成本 → 必须上类 2。
+- **风险 2（误 pin 的后果）**：本架构下误 pin **不会产生错误解**（真实目标由
+  `snap` 重算 + trunc6 字典序接受），只会**损失改进机会**（少打了一条本来能打的弧、
+  `zlb` 抬高导致 MIP 返回无改进）。所以"宁可漏判，不可错判"。
+- **风险 3（zlb 与 infeasible）**：`zlb` 抬高后 Gurobi 可能直接 infeasible；
+  现有代码把无解当 `markFail` 处理（`main.go:303-309`），行为可接受，但要在日志里区分
+  `infeasible-by-zlb`，否则会误读为模型 bug。
+- **风险 4（时变性）**：桥性只依赖 `(拓扑, Blocked[t])`，**在整个求解过程中是静态的** ——
+  所以运行期复检只在"15s 超时没扫完"或"类 3 需求级判定"时才有意义，不要每轮重算全图。
+
+---
+
+## 11. 验收标准（可量化，按实现后的口径修订）
+
+1. **setA-01**（已达成，单测 `TestSetA01FloorIsTheSprintFirstBit` 固化）：
+   `t=0 arc=29 (7→14) lb=load=519.5256, sat=0.929384, source=sink-dom, proven=false`（地板）；
+   `LBSat` 的 trunc6 = **929383** = sprint 第一名 first bit → 求解器收尾打印
+   `first bit PROVEN optimal`。**注意口径变化**：原验收要求 `proven=true`，
+   但实测 `noNewUser` 不通过（别的 demand 可以用 waypoint 绕到 arc29 上），
+   所以 `proven=false`；`lb=ub` 换成"地板 + 证书"。
+2. **setB-01**：`deep` 会吃满 15s（`timed_out=true` 是预期行为，Pass A 已完成），
+   `revoked=0`；`LBSat` 远低于空解起点 first bit（实测 `lb_sat=0.1419` vs 起点 0.999998）——
+   即"setB 头号热点 arc43 是可以绕开的"这一结论本身有价值（原设计猜它需要类 3 升级）。
+3. **无回归**：`revoked == 0`、无 `pin-violation` WARN（当前 setA-01/setB-01 均成立）。
+4. **轮次收益**（已完成，结论见 §14.6）：同 wall-clock、同并发下的**四臂**对照
+   （`off` / `on,skip-floor=false` / `on,skip-floor=true` / `on,-presolve-deep 100`），
+   按 CLAUDE.md 规范报告每实例「打平层数 + 首 gap 层 + 差值」。
+   **实测结论：presolve 对解质量的影响落在噪声带内**——`off` 与 `on100` 在 12/12 共同实例上
+   首分逐位相同；`on` 与 `on100` 的 presolve 产出相同却抖 1–4 层打平层数。所以
+   **不要基于单次 A/B 给 presolve 记功**（详见实验报告 §4.3）。
+5. **报告规范**（遵循 CLAUDE.md）：给出「打平层数」+ gap 落在第几层/差值；同时给出
+   `LB_sat` 与「first bit 距地板差」。本次另加一条硬约束：
+   **报告必须写明各 arm 的实例覆盖度**（本次 `off` 16/20、`on`/`on_skip` 15/20、`on100` 12/20）。
+
+---
+
+## 12. 复现脚本（本次实测）
+
+均以仓库根为 cwd，用 `.venv/Scripts/python.exe` 运行（脚本为一次性探针，未入库）：
+
+| 结论 | 脚本要点 |
+|---|---|
+| setA-01 类 1 桥数 / setB-01 类 1 桥数与 pin 后 `LB_sat` | 无向化配对图 + 迭代 lowlink 求割边，逐桥划分两侧后按方向累加 `Σ vol` |
+| setA-01 arc29 非割边 | 禁 29 后 `tail(7)` 出度 = 3；对 40 条 demand 逐一 BFS 可达性 |
+| setA-01 arc29 是 sink 支配（19/20） | 反向 Dijkstra：`dist_{-29}(u,14) > dist(u,14)` |
+| setA-01 pin 值 = 0.929384 | `Σ vol (t_d=14, slot 0) / cap 559` |
+| setB-01 arc43 = 空解头号热点 | 反向/正向 Dijkstra + tight 判定 `dist(s,u)+w+dist(v,t)==dist(s,t)` 累加 `vol` |
+| setB-01 arc43 类 1 失效 / 类 2 失效 | 95 条 tight demand 禁弧后 0 条断开；67 个 sink 逐一试支配，恒 4/264 |
+
+---
+
+## 13. 问题清单
+
+### 13.1 已确认（2026-09-10）
+
+| # | 决定 |
+|---|---|
+| Q1 | `PinArc` 传**快照上的绝对负载体积**（非饱和度）；`Bounds` 全链路用负载，`sat = load/cap` 只在 MIP 侧换算。 |
+| Q3 | 接受在"连通性/桥"之外补**类 2**；但**定义必须强于"禁弧后距离变长"** → 已改为 §3.2 的**支配弧**定义（全节点量化 + 全最短路量化 + 等长判否）。 |
+| Q4/Q5 | 类 3 = `H_e` 连通性判据（不是 `dist_{-e}(s,t) > dist`），且**只放运行期升级路径**；presolve 阶段只跑类 1+2。 |
+| Q6 | `lb=ub=当前负载` 仅在一致性校验通过（强制集覆盖该弧当前全部 demand 且 `Σ vol == 当前负载`）时成立；否则**只写下界、不标 Proven**。原则：**宁漏勿错**。 |
+| Q8 | `-presolve-time` 是**整个预检测阶段的全局预算（15s）**，求解开始时调用一次，超时即停、已得结论保留。 |
+| Q9 | **不挂 `graph`**（`Graph` 是无状态共享邻接表，`ecmp.Cache`/`Index` 共用）。可变上下界独立成 **`Bounds` 对象，由求解循环持有**；接口含：定死 / 只加下界 / 查下界 / 查上界 / 列出已证明定死的键（§7.1）。 |
+
+### 13.2 待确认（实现后更新）
+
+- **Q2 快速检查的精确语义**（出度 ≤1）：实现里**没有采用**这个筛子。它既非充分也非必要，
+  而且类 2 的一次反向 Dijkstra + `Ins[q]` 扫描已经足够便宜（setA-01 Pass A 实测 0.00s），
+  所以 `OutDegreeAvoiding/InDegreeAvoiding` 只作为图工具函数存在，未参与判定。
+- **Q3b 类 2 的最终定义**：已按 §3.2 的支配定义实现，并用**等价的唯一 tight 弧**形式
+  （见 §7.2），无需支配树。
+- **Q7 永久性的边界**：已确认并实现 —— `preFrozen` 不随 first bit 清空；
+  `TestKey` 只在 `fail[k] >= failLimit` 时触发。
+- **Q10 报告/监控**：TSV 已实现（`-presolve-pins`）；**监控页标记未做**（`internal/monitor` 未改）。
+- **Q11 与 `constantFloor` 的统一**：实现为**两者取 max**（`max(constantFloor(), SatFloor)`）
+  + 对 tracked 单元加**绝对下界行**。原因：`constantFloor` 只覆盖"本 pool 不可变"的单元，
+  而地板是全局性质且对 tracked 单元同样成立；单靠"把 pinned 单元从 tracked 剔除"无法表达
+  "这个单元不会低于 LB"。
+- **Q12 默认开关**：已定 `-presolve` 默认开（口述要求），`-presolve-time` 默认 15s；
+  setA 用不满（实测 0.00s），setB 会吃满 15s。是否按实例规模给不同默认值**暂缓**，
+  等 §11.4 的三臂对照结果。
+- **Q13 新增：`-skip-floor` 默认值**：默认 `true`。副作用是把"floor 单元"从 seed 里剔除，
+  可能改变锚点选择 → 必须与 `false` 对照验证（三臂里的 `on` = false、`on_skip` = true）。
+
+---
+
+## 14. 实现记录与三处 soundness 缺陷（2026-09-10）
+
+口述原则是"宁可漏判，不可错判"，实现过程中有**三处**踩线，全部由**交叉验证**抓出。
+记录在此，因为它们正是这套判据最容易重复犯的错。
+
+### 14.1 同一 demand 被两类判据重复累加（`forced` 去重）
+
+类 1（桥）与类 2（支配）经常同时命中同一条弧、同一条 demand（割边的唯一方向往往也是支配弧）。
+第一版把两类结果**相加**，于是 `Σ forced = 2 × load`，在 setA-01 上产生 8 个 `revoked`。
+修正：`forced` 累加器按 **(arc, demand)** 去重（`add(arc, d, vol, source)` +
+`setExact(arc, vol, ndem, source)`），`source` 只作为 provenance 标签合成
+（如 `"bridge+sink-dom"`）。类 3 的结果是精确且天然去重的，走 `setExact`。
+
+### 14.2 `Σ forced == load` 被当成"不可动"（错误的 pin）
+
+原 §4.1 的判据只说明"**当前**没有别的 demand 走在 e 上"，**不排除**下一轮把某条 demand 绕到 e 上。
+实测：setA-01 `t=0 arc12` 的强制和 91.0723 恰好等于负载，但候选池里一条 253.898 体量的 demand
+改道后该单元立刻移动 —— MIP 的 `PinnedViolations()` 在**每一轮**都报 WARN（61/61 轮），
+这也正是当初加那个校验的目的。修正：`lb == ub` 必须补 §4.1 的 `noNewUser`
+（其他 demand **永远无法**碰到 e）。实测 setA-01/setB-01 上 `proven = 0`：
+连通图里任何 demand 都能用 waypoint 绕到任意弧上 —— 所以真正的产物是**地板**而不是 pin。
+`PinnedViolations` 保留为安全阀（现在恒为空）。
+
+### 14.3 类 3 的有向关系被当成无向连通（漏判强制弧）
+
+`R_e(u,v) ⟺ 存在绕开 e 的最短 u→v 路`（`dist_{-e}(u,v) == dist(u,v)`）**不对称**：
+路由是**链**，链上每一跳都要**按方向**成立。第一版用 union-find 求"连通类"，
+会把 `R_e(v,u)` 的边当成反向可用 → 过度判定"可绕"。
+实测后果：setA-01 的 `arc29`（sprint 第一名向量证明其负载 519.5256 是结构地板）被类 3 判为
+"可绕"、forced = 0 —— 也就是说类 3 完全没起到"精确判据"的作用，实际全靠类 2 撑着。
+修正：`R_e` 建成**有向位图**（每行一个 `[]uint64`），demand 能否绕 = `t_d` 从 `s_d` 在
+该有向图中**可达**（逐源 BFS，按 (slot, cell) 复用 base 距离缓存）。
+单测 `TestStructuralFloorsAreSubsetsOfTheExactTest` 把这条不变量固化下来：
+**类 1+2 给的每个地板都必须 ≤ 类 3 的精确强制量**（现在 9/9 通过）。
+
+### 14.4 与 MIP 的接口（原设计的 Q11 结论）
+
+- 打开地板后**必须**给 MIP 加"绝对下界行"，否则 MIP 的 layer-0 最优值是一个
+  **任何路由都达不到的乐观值**（它会把 tracked 单元压到地板以下），
+  每轮的接受判定再把它否掉 → 白轮。
+- `SatFloor`（全局）与 `constantFloor`（本 pool）取 max 作为 layer-0 的 `zlb`。
+- pinned（`Proven`）单元本来就是"没有候选能动它" → 天然不在 `tracked` →
+  已由 `constantFloor` 覆盖，无需额外参数；`BuildOptions.Pinned` 只用于校验。
+
+### 14.5 落地清单
+
+| 文件 | 内容 |
+|---|---|
+| `internal/graph/bridge.go`（新） | `Bridges`（配对图 + 迭代 Tarjan lowlink）、`BridgeSide`、`OutDegreeAvoiding` / `InDegreeAvoiding`、`ReachableAvoiding` |
+| `internal/graph/search.go` | `DijkstraInto`（缓冲复用，presolve 热循环用） |
+| `internal/presolve/presolve.go`（新） | `Bounds`/`Bound`、`Options`/`Mode`/`ParseMode`、`Judge`（base 距离缓存 + R_e 位图 + `Exact` + `TestKey`）、`forced` 去重累加器、`scanner`（`structural` / `deep` / `record` / `noNewUser`）、`WritePins` |
+| `internal/mip/mip.go` | `BuildOptions.Floors` / `SatFloor`、`Problem.floors`、tracked 单元的绝对下界行、`zlb = max(constantFloor, SatFloor)`、`PinnedViolations` |
+| `cmd/solve/main.go` | `-presolve` / `-presolve-time` / `-presolve-deep` / `-presolve-pins` / `-skip-floor`；启动调用 + 报告 + 证书打印；`preFrozen` 并入 `done` 且不清空；`markFail` 里的运行期复检；`hots` 的 floor 过滤 |
+| `cmd/bench/main.go` | 透传 `-presolve` / `-presolve-time` / `-presolve-deep` / `-skip-floor`（四臂对照用） |
+| `internal/presolve/presolve_test.go`（新） | `Bounds` 区间合并、`ParseMode`、setA-01 地板 = sprint first bit、类 1+2 ⊂ 类 3 的交叉校验 |
+| `scripts/presolve_scan.sh` / `presolve_deep_sweep.sh` / `tabulate_pres_ab.py`（新） | 单相扫描（`-rounds 0`）、Pass B 上限 sweep、四臂派生表 |
+
+### 14.6 调参与对照实测（2026-09-10，实验报告 `experiments/2026-09-10_02_presolve_setA_ab/`）
+
+1. **Pass B 上限默认改为 100**。`-presolve-deep K` sweep（K ∈ {0,100,300,600,1200}）：
+   setA 的 presolve 总时长 **103.8s → 9.7s（10.7×，K=100）**，`LB_sat` **20/20 逐位不变**，
+   floors 只在 setA-20 掉 2 条（不影响 `LB_sat`）；setA+setB 32 个实例合计
+   **284.7s → 118.2s**，`LB_sat` **32/32 不变**。
+   **但 setB 不能关掉类 3**：K=1 时 setB-05 的 `LB_sat` 从 488837 崩到 15162（弱 32 倍）。
+   setB-08..12 即使 K=100 仍吃满 15s —— 瓶颈在 **Pass A**（遍历 1.8 万 ~ 4 万正负载单元），
+   不在 Pass B。
+2. **"有地板"与"有瓶颈"是两回事**。setA-06/10/13/16/19（CLAUDE.md 里 gap 最大的 7 个中的 5 个）
+   扫出 `floors = 0` 且 `LB_sat = 0` —— 它们的最热弧**全部可绕行**。
+   所以下一步压这些实例要靠**绕行/尾部均衡搜索**，不是再加地板判据。
+3. **两张证书**：setA-01（`LB_sat` trunc6 = 929383 = sprint 第一名首分 → 第 1 层最优）、
+   setA-18（`LB_sat` rank = 999998 = 空解首分 → 启动即最优，其首条地板是 **class 1 桥**，
+   说明三类判据互补）。setB-01 `LB_sat` rank 141921 vs 空解 999998 → setB 头号热点也是可绕行的
+   （推翻了原设计"setB 需要类 3 升级"的猜测）。
+4. **四臂对照结论：presolve 对解质量的影响在噪声带内**。
+   `off` / `on` / `on_skip` 在 12 个共同实例上首分 11/12 一致；`off` 与 `on100` 首分 12/12 一致。
+   决定性证据：setA-06 的 presolve 产出是**空结果**（`floors=0, LB_sat=0`，即 no-op），
+   但 `on` 给 105633、`off`/`on100` 给 119718（差 11.8%）→ 这个差只能来自 Gurobi 随机性/时序。
+   另一条：`on` 与 `on100` 在 setA-05/07/09 上 presolve 产出逐位相同却抖 1–4 层打平层数。
+   → **不要基于单次 A/B 给 presolve 记功或记过**；其被证明的价值是 `LB_sat` + 首分证书。
+5. **阻塞项（先修再谈调参）**：`-wall-sec` 只在轮次之间检查，单轮 MIP 无界溢出 ——
+   `off` 臂 setA-16 标称 90s 实跑 **3020s（33×）**。这是所有基准比较的公共噪声源。

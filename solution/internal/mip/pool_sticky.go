@@ -3,6 +3,8 @@ package mip
 import (
 	"fmt"
 	"sort"
+
+	"tasr/internal/cand"
 )
 
 // Sticky-span semantics (design doc §12, user's V1.0): a round only makes
@@ -91,6 +93,9 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 	var demands []demand
 	maxEnd := seed
 	for d := 0; d < inst.NDemands(); d++ {
+		if gen.expired() {
+			return nil, nil // ran out of wall clock: caller skips this round
+		}
 		dem := &inst.Demands[d]
 		if dem.Volume[seed] == 0.0 {
 			continue
@@ -192,14 +197,6 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 	for _, dd := range demands {
 		d := dd.d
 		dem := &inst.Demands[d]
-		// Per-demand node set excludes its own source/target.
-		nds := make([]int, 0, len(nodes))
-		for _, w := range nodes {
-			if w == dem.Source || w == dem.Target {
-				continue
-			}
-			nds = append(nds, w)
-		}
 
 		mkCur := func() []float64 {
 			out := make([]float64, len(slots)*m)
@@ -269,6 +266,59 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 				out[s] = u
 			}
 			return out, true
+		}
+
+		// Targeted candidate generation (internal/cand): the pool of nodes is
+		// the demand's hop ball rather than every node in the network.  The
+		// family's slots are the whole sticky run, so a candidate must survive
+		// the copy on every run slot to be usable -- the same rule routeAll
+		// applies below.
+		if gen.candOn() {
+			reliefAt := func(slot int, u []float64) float64 {
+				targets := hotBySlot[slot]
+				cl := dd.curLoad[slot]
+				if len(targets) == 0 || cl == nil || u == nil {
+					return -1
+				}
+				best := -1.0
+				for _, ha := range targets {
+					if r := cl[ha] - dd.vol[slot]*u[ha]; r > best {
+						best = r
+					}
+				}
+				return best
+			}
+			hm := map[int][]int{}
+			for _, s := range dd.run {
+				if len(hotBySlot[s]) > 0 {
+					hm[s] = hotBySlot[s]
+				}
+			}
+			alts, err := cand.Build(gen.Snap, gen.CandIX, gen.candHops(), g, inst, cand.Family{
+				D:      d,
+				Slots:  dd.run,
+				Hots:   hm,
+				Relief: reliefAt,
+			}, gen.Cand)
+			if err != nil {
+				return nil, fmt.Errorf("sticky demand %d run %v: %w", d, dd.run, err)
+			}
+			for _, a := range alts {
+				appendMove(a.Wps, a.Units)
+			}
+			if len(cands) > 1 {
+				p.Pairs = append(p.Pairs, Pair{D: d, Cand: cands})
+			}
+			continue
+		}
+
+		// Per-demand node set excludes its own source/target.
+		nds := make([]int, 0, len(nodes))
+		for _, w := range nodes {
+			if w == dem.Source || w == dem.Target {
+				continue
+			}
+			nds = append(nds, w)
 		}
 
 		type alt struct {

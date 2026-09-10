@@ -1,0 +1,23 @@
+instance=setA-03 m=250 T=2 n=50 demands=20
+  state=empty snapshot  first-bit raw=1.000001208 rank=1000001  total_cost=0  (0.00s setup)
+  hot cells: (t=0,arc=175,load=1.000001) (t=0,arc=27,load=0.982168) (t=0,arc=151,load=0.842345) (t=0,arc=214,load=0.706485) (t=0,arc=80,load=0.601922) (t=1,arc=135,load=0.601896)
+  families=6 (demand, single-slot) — each routed by every mode of "mix"
+
+== hop cache on  :    6.0 ms best-of-1, 6 families, BFS queries=66 hits=45 misses=21 computed=21, sets=2
+== hop cache on2 :    6.0 ms best-of-1, 6 families, BFS queries=66 hits=45 misses=21 computed=21, sets=2
+== hop cache off :    6.0 ms best-of-1, 6 families, BFS queries=66 hits=0 misses=66 computed=66, sets=2
+
+=== summary: mode=mix, 6 families ===
+candidates      : 295 total, 49.17 per family (17.17 w1 + 32.00 w2)
+mean top relief : 249.795366667   (sum 1498.772200)
+candidate time  : 4.9 ms total, 0.81 ms per family
+tag histogram   : bottleneck=5 global_relief=18 hot_center=38 mix=192 od_scan=38 offhot=4
+degenerate      : 0 empty, 0 with <=2 candidates
+
+--- recall vs brute force (1-waypoint, top-12 per family) ---
+relieving nodes : 205 over 6 families (nodes that strictly reduce a target when used alone)
+recall@12        : 56/72 = 77.8%   (perfect families: 0/6)
+relief capture  : cand best / legacy best over families = 1.0000 (cand 1498.772200 vs legacy 1498.772200)
+
+generator determinism: PASS — cache-on repeated gave bit-identical candidate lists on all 6 families
+cache neutrality: PASS — cache-on and cache-off produced bit-identical candidate lists on all 6 families

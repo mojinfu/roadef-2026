@@ -1,0 +1,660 @@
+# 0910 候选节点策略（定向候选路径生成，替代暴力全节点枚举）— 设计说明
+
+> 2026-09-10 优化建议第二条（缺失功能 2）。本文是 `thesolutionv1.0.txt` §10（`tasr/candidates/`，Python 参考实现）
+> 的 **Go 落地细化**，并补齐口述版在"路径一致性"上留下的一致性陷阱（§3.3 / §9 红线 2）。
+> **状态：口径已定（Q1–Q8 全部确认，见 §12.1；未实现）**。本文所有"推算"数字都标注了来源公式；
+> 实测列待落地后按 §10 填。
+
+---
+
+## 0. 一页速览
+
+- **要做什么**：把候选 waypoint 的**搜索空间**从"全网节点"换成"定向候选节点池"（`POOL_CAP=24`）。
+  三条策略生成节点池 → 池内做 1-wp / 2-wp 组合 → 合并去重 → 每 demand 再撒 ~5% 池外随机 1-wp。
+- **为什么值得做（Go 现状）**：`mip/pool.go:221-228` 与 `mip/pool_sticky.go:176-202` 都把
+  **除 s/t 外的全部节点**当候选（注释原文："The whole network node set is the waypoint search space"）。
+  于是 1-wp 是 `O(n)`，2-wp 是 `C(n-2,2)` 全对枚举，超 `Wp2Cap=8000`（`pool.go:81`）才 **stride 均匀采样**
+  —— 采样**不看结构**，撒到的点大概率与热弧无关，纯粹烧 `sn.UnitRoute`（每次 = ECMP atom 查表 + 长度 m 向量累加）。
+- **三条策略**（对应参考实现 `DEFAULT_MIX`）：
+  1. **hot_center 热中心**：OD 跳数球 → 按"到热弧端点的**无向**跳数距离"升序 → 只保留**实测能卸热弧流量**的点 → 点对做 2-wp；
+  2. **od_scan O-D 扫描**：同样涨跳数球，但**纯按额外跳数**排序、完全不看热弧 → 覆盖热中心漏掉的远距绕行入口，实现更简单；
+  3. **bottleneck 瓶颈**：找 demand **当前最短路上的热弧**（热弧 = **本轮分解集合** `hots`），逐条 ban 求绕行点，两个热弧的绕行点**两两配对** → 同时绕开两条热弧。
+- **合并**：三池先并集去重（**按负载签名**，不是 waypoint 序列），再 `inject_offhot_random` 补 ~5% 池外节点 1-wp。
+- **量化收益（推算，见 §7）**：setB-01（n=264）每 demand 每 family 的候选**评估次数**
+  从 `262 + 8000 = 8262` 降到 `≤ 24 + C(24,2) = 300`（**≥27×**）；
+  2-wp 的**搜索空间**从 `C(262,2) = 34191` 降到 `276`（**124×**），n=400 的 setA 上是 `79003 → 276`（**286×**）。
+- **新增文件/接口**：`solution/internal/cand/`（新包）；`mip.Generator` 增 `Cand cand.Options` +
+  `CandIX *graph.Index`（Q6）；`pool.go` / `pool_sticky.go` 的节点枚举段被 `cand` 替换；
+  `cmd/solve/main.go` 增 `-cand-mode`、`-cand-pool-cap`、`-cand-seed` 三个开关。
+- **两条硬约束**（易踩）：① **两层预算独立** `MaxW1=24` / `MaxW2=32`，不得合并回一个 12（Q8）；
+  ② 默认 Mode **恒 `mix`**，不按实例规模自适应（Q7）。
+
+---
+
+## 1. 目标与动机（量化）
+
+### 1.1 现状：暴力全节点枚举
+
+两条代码路径，同一套逻辑（`BuildCells` 单槽/twin 家族，`BuildSticky` sticky 家族）：
+
+```go
+// mip/pool.go:221-228  （BuildCells）
+// The whole network node set is the waypoint search space.
+var nodes []int
+for w := 0; w < n; w++ {
+    if w == dem.Source || w == dem.Target { continue }
+    nodes = append(nodes, w)
+}
+```
+
+```go
+// mip/pool.go:276-296  （同一份逻辑在 pool_sticky.go:299-315 复刻）
+for _, w := range nodes { try([]int{w}) }            // 1-wp: n-2 次
+pairs := len(nodes) * (len(nodes) - 1) / 2
+step := 1
+if pairs > gen.Wp2Cap { step = (pairs + gen.Wp2Cap - 1) / gen.Wp2Cap }   // 超 8000 就 stride 采样
+for i := 0; i < len(nodes); i++ {
+    for j := i + 1; j < len(nodes); j++ {
+        cnt++
+        if step > 1 && cnt%step != 0 { continue }
+        try([]int{nodes[i], nodes[j]})               // 2-wp: ≤ Wp2Cap 次
+    }
+}
+```
+
+`try` 每次调 `relFor` → `sn.UnitRoute(d, s, wps)`（`snap.go:77`）：按分段展开成 ECMP atom 求和。
+**这就是候选生成的全部成本所在**，且与节点是否可能有用完全无关。四点具体问题：
+
+1. **采样无信息**：`step` 只在 colex 序上均匀撒点；对 setB-01（step=5）意味着一半以上的评估落在
+   与 hot 弧无拓扑关系的节点对上，`relief` 必然 ≤ 0，直接被 `try` 丢掉（`pool.go:272`）。
+2. **1-wp 也在浪费**：`n-2` 次评估里，能真正卸载热弧的点通常是个位数（见 §3.1 步骤 5——参考实现
+   要求"实测能卸热"才留下），其余全丢。
+3. **重复路由**：`enumerate` 的第二参数 `unitAt func(wps []int) ([]float64, error)`（`pool.go:263`）
+   **在函数体内从未被调用**（死参数），随后调用方又为每个入选 alt 再跑一次
+   `sn.UnitRoute(d, s, a.wps)`（`pool.go:321` / `pool.go:374`）。即**每个入选候选被路由两次**。
+   本重构顺带修掉（策略化后评估次数本来就少，但这个白跑一次是纯浪费）。
+4. **代码注释自认**：`pool.go:73-81` 的 `defaultWp2Cap` 注释原文——"explodes quadratically on the
+   largest setA instances (n up to 400 -> ~80k pairs per family)"。当前用 stride 采样压住成本，
+   代价是**搜索方向的随机化**；本策略用**结构化的 24 点池**压住成本，代价是**搜索空间的收窄**（这是有意的取舍）。
+
+### 1.2 第二动机：与 presolve 的互补（不要互相打架）
+
+参考实现 §10 末尾有两个关键警告，直接对应本仓库已落地的 presolve 设计（`0910pres.design`）：
+
+> "候选都是**不禁热弧**的 SP 段拼接；若某弧是进某个 sink 的**度量支配边**，候选 frac 在该弧上全是 1，
+> MIP 无法卸载，**这不是 bug 而是 SR+SP 模型本身**。"
+
+- 这与 `0910pres.design` §3.2 类 2（sink 支配）**同源**：sink 支配弧在 SR+SP 模型下不可卸载。
+- **分工**：presolve 负责把这些弧 **pin 掉**（永久不攻击）；候选策略负责**别在它们身上浪费候选**。
+- 推论：`hot_center` 的"能卸热才进 2-wp"过滤（§3.1 步骤 5）会自然淘汰这类节点——
+  **不需要**在候选层重复实现支配判定（那是 presolve 的活）。两者是互补而非冗余。
+
+### 1.3 与既有加速层的关系
+
+基建**已经在了**，只是没接到候选生成上：
+
+| 已有设施 | 位置 | 本策略怎么用 |
+|---|---|---|
+| `Index.HopsFrom(t,u)` / `HopsTo(t,v)` | `graph/index.go:123-143` | **跳数球原语**：`HopsFrom(t,s)[w]` = s→w 跳数，`HopsTo(t,tgt)[w]` = w→tgt 跳数，两者之和 = 经 w 的总跳数。LRU 缓存，同 (t,src) 跨 demand 复用。 |
+| `Index.DistFrom/DistTo` | `graph/index.go:101-121` | bottleneck 的"绕行路径"重建。 |
+| **（缺）无向跳数 BFS** | 需新增，见下 | hot_center 的端点排序原语（§3.1 步骤 4）。`HopCounts` 的 `reverse bool` 只选 `Outs` **或** `Ins`，取不到无向跳数 → 必须新增。 |
+| `HopCounts` / `Dijkstra` | `graph/search.go:26-94` | 底层 BFS/Dijkstra，松弛顺序（弧 id 升序、严格 `<`、堆按节点号）是 checker 对齐的，**勿动**。 |
+| `Index` 的 LRU | `ecmp.Cache.idx`（`ecmp.go:39,63`） | 当前 `maxSize` 走默认 2048（`index.go:60`）。本策略每轮的 (t,src) 需求数会显著上升 → 见 §7.3 的容量风险。 |
+
+**需新增的无向跳数原语**（`graph/search.go` + `graph/index.go`）：
+
+```go
+// HopCountsUndirected：无向化（Outs ∪ Ins）的跳数 BFS。
+// 与 HopCounts 的区别只在邻接取并集，其余（blocked 语义、-1 不可达、队列顺序）完全一致。
+func HopCountsUndirected(g *Graph, source int, blocked []bool) []int
+
+// Index 新增第 5 种 kind（idxKind）：kindHopsUnd
+func (ix *Index) HopsUnd(t, v int) []int
+```
+
+⚠ **不要**用 `HopsFrom + HopsTo` 拼无向跳数——那是**有向**和，只在 s/tgt 之间有意义。
+⚠ 无向 BFS 只用于 §3.1 的**排序**（启发式优先序），**不参与**任何判定；
+跳数球（§3.0.1）仍然是有向的 `HopsFrom(s) + HopsTo(tgt)`，两者不可混用。
+
+---
+
+## 2. 术语
+
+| 术语 | 定义 |
+|---|---|
+| **热弧 / 热单元** | **本轮分解集合** `hots`（`main.go:147-156` 取全局 sat 降序前 `hotK`，默认 6），即 `mip.HotCell{Slot, Arc}` 那一组。**不用**"路径上饱和度超阈值"的口径（已定，见 §12） |
+| **热弧端点** | `g.From[arc]`（tail）与 `g.To[arc]`（head）。弧本身是有向的，但 hot_center 排序用**无向**跳数（已定，§3.1 步骤 4） |
+| **跳数球 hop ball** | `B(t,s,tgt,extra) = { w : HopsFrom(t,s)[w] + HopsTo(t,tgt)[w] ≤ H_min + extra }`，`H_min` = 当前 s→tgt 最少跳数 |
+| **family** | 一次候选生成的作用域：单槽家族（某热槽 s）+ twin 家族（相邻 (u,u+1)）。沿用 `pool.go:304-378` 现有划分，**本设计不动 family 逻辑** |
+| **卸载点** | hot_center 中"实测插入后确实降低热弧负载"的节点（§3.1 步骤 5） |
+| **负载签名** | 单位负载向量的指纹（非零弧集合 + 值）。两个不同 waypoint 序列可能给出同一负载向量，**合并去重必须用它而不是序列** |
+| **off-hot** | 不在热池里的节点（`inject_offhot_random` 的采样域） |
+
+**为什么去重键是负载签名而不是 waypoint 序列**：MIP 看不到 waypoint，只看 `frac`（单位负载向量）当系数
+（参考实现原文："MIP 看不到 waypoint，只看 frac 当系数"）。同一负载的多个序列在 MIP 里**完全等价**，
+留着只会让 MIP 的候选列变多、变慢，不改变可达集合。
+
+---
+
+## 3. 三条策略
+
+### 3.0 公用原语（对应 `tasr/candidates/common.py`）
+
+四条原语，三策略共用：
+
+#### 3.0.1 `hop_scan_pool` — 跳数球涨球（**核心**）
+
+```
+HopBall(t, s, tgt, cap, maxExtra):
+    hf = ix.HopsFrom(t, s)        # hf[w] = s→w 跳数（-1 unreachable）
+    ht = ix.HopsTo(t, tgt)        # ht[w] = w→tgt 跳数（-1 unreachable）
+    Hmin = hf[tgt]                # 当前最少跳数（= ht[s]）
+    for extra = 0; extra <= maxExtra; extra++:
+        S = { w : hf[w] >= 0 && ht[w] >= 0 && hf[w] + ht[w] <= Hmin + extra }
+        if |S| >= cap: break      # 涨到池容就停（口述："直到候选节点数达到上限，默认 24"）
+    return S
+```
+
+- **成本**：每个 (t, s) / (t, tgt) **一次 BFS**，结果进 `Index` 的 LRU；
+  同一 slot 的多个 demand 若共享 source/target，只算一次。
+- **注意**：`extra` 从 0 涨，因此池是"跳数上最贴最短路"的节点优先——这与 §3.1 的"按到热弧端点距离排序"
+  是**两个不同的序**，不要混（前者是建池的剪枝，后者是池内的排序）。
+- **Unreachable 语义**：`hf[w] == -1 || ht[w] == -1` 时该节点对这条 demand 无意义（一侧不可达），
+  直接排除。这也天然处理了"维修禁用弧"造成的连通性变化（`Index` 按 slot 取 `blocked`）。
+
+#### 3.0.2 `compress_waypoints` — 支配点压缩
+
+```
+若 u 在 s→tgt 的某条最短路上，则丢掉 u
+```
+
+判据（与 `0910pres.design` §12 用的 tight 判定同款）：
+
+```
+tight(u) ⟺ DistFrom(t,s)[u] + DistTo(t,tgt)[u] == DistFrom(t,s)[tgt]
+```
+
+用途：（a）1-wp 里插入"本来就在最短路上"的点 = 等价于空 waypoint（`frac` 与当前相同，relief=0），
+是**纯浪费**；（b）2-wp 里若某点是支配点，该候选的卸载能力受限（§1.2）。
+
+**浮点约定**：这里的 `==` 是**精确相等**，与 `ecmp` 的浮点约定一致（CLAUDE.md 红线）；因为两侧距离都来自
+同一个 `Dijkstra`（`search.go` 的松弛顺序被固定），同一路径的累加顺序一致，精确比较是**可靠**的。
+⚠ 不要改成容差（改了就会漂移出与官方 networktools 不一致的紧弧集）。
+
+#### 3.0.3 `waypoint_seqs(pool, max_w)` — 序列产出
+
+产出空序列（当前路由，MIP 的候选 0）、全部单点、以及**池内两两组合**的双点。
+
+上限：**每 demand 24 条 1-WP、32 条 2-WP**（参考实现数值），**两个预算是独立的**
+（已定，§12 Q8）：1-WP 与 2-WP 各自封顶，**不**合并成一个混合列表再截断
+——即退役现有 `MaxCandPerDemand` 那种"1-wp + 2-wp 排序后一起截到 12"的做法（§4）。
+
+⚠ **Q8 的直接后果：进 MIP 的列数变多**。现状每 demand ≤12 列，改造后 ≤ `24 + 32 = 56` 列（**约 4.7×**）。
+这是**有意的**：24/32 不是"进 MIP 的列数上限"，而是**策略池的产出上限**；两者相差一个
+"§3.1 步骤 5 实测过滤 + 签名去重"的收窄，实际入袋数通常明显小于 56。
+但 MIP 规模确实变大，**必须在 §10 验收 2 里盯 `BuildCells`/`Solve` 耗时**，
+若单轮建模型时间吃掉了搜索轮数，先降 `MaxW2`（32→16）而不是回头去合并两层预算。
+
+#### 3.0.4 `stretch_pool` — metric 拉伸（**已定：第一版不做**）
+
+```
+StretchBall(t, s, tgt, slack) = { w : DistFrom(t,s)[w] + DistTo(t,tgt)[w] <= DistFrom(t,s)[tgt] + slack }
+```
+
+参考实现里它与 `hop_scan_pool` 并列，但**已定第一版只做跳数球**（§12 Q1）。
+保留 `Options.StretchSlack` 字段（默认 0 = 关）作为后续开关，v1 不实现其填充逻辑。
+
+#### 3.0.5 `try_keep` — 路由 + 签名去重 + 入袋
+
+```
+try_keep(wps):
+    u = sn.UnitRoute(d, s, wps)          # 唯一一次路由（修掉 §1.1 问题 3 的重复路由）
+    if err: record sticky_illegal; return # 某段被维修断开 → 该候选不可用
+    sig = loadSignature(u)
+    if sig ∈ seen: return
+    seen.add(sig); bag.append({wps, frac: u})
+```
+
+### 3.1 策略一：热中心 hot_center
+
+> 口述："对每条需求，先用跳数球扩展找到从源到宿的中间节点……然后按这些节点到热弧两端点的跳数距离排序，
+> 离热弧节点越近的节点越优先，**只有那些能实际卸载热弧流量的节点才用来生成双中间点**。"
+
+**步骤（口述 6 步，逐条落地）**：
+
+1. **建跳数球**：`HopsFrom(t, s_d)` 前向 BFS + `HopsTo(t, tgt_d)` 反向 BFS，逐节点跳数和 = 两者之和。（§3.0.1）
+2. **涨球到池容**：从最短跳数（`extra=0`）开始，逐步加 `extra`，直到 `|S| >= PoolCap`（默认 **24**）。（§3.0.1）
+3. **取热弧两端点作中心**：`c1 = g.From[hotArc]`，`c2 = g.To[hotArc]`。
+4. **按到最近中心点的跳数距离升序排序**（**无向跳数**，已定，见 §12 Q2）：
+
+   ```
+   d(w, e) = min( HopsUnd(t, From[e])[w],    # 无向跳数 w ↔ tail(e)
+                  HopsUnd(t, To[e])[w]  )    # 无向跳数 w ↔ head(e)
+   ```
+   `HopsUnd` 是**新增原语**（§1.3）：在 `Outs ∪ Ins` 的无向化邻接上做 BFS。
+   ⚠ 不能用有向的 `HopsTo(From[e])[w]` / `HopsFrom(To[e])[w]`（前者是 w→tail、后者是 head→w），
+   也不是"同向公式"——无向距离是对称的邻近性度量，与 demand 的流向无关。
+   **排序只是优先序（启发式），不承担任何判定职责**：由于它不区分"热弧上游/下游"，
+   一个被挤进前 24 的节点可能只是"几何上离热弧近"而已；真正把"离得近但卸不掉"的点筛掉的是
+   下一步的实测过滤。两步的分工不要混。
+5. **依次尝试每个节点作单中间点，只保留真的卸了热的**：
+
+   ```
+   for w in sortedByDistance:
+       u = sn.UnitRoute(d, t, []int{w})
+       if u 失败: continue
+       if curLoad[t][hotArc] - vol[t]*u[hotArc] > FracEps:   # 复用 pool.go:248-256 的 relief()
+           offloadPoints.append(w)
+   ```
+   这一步是 hot_center 与 od_scan 的**唯一本质差别**：热点只让"证明过能卸热"的点进 2-wp。
+6. **卸载点两两组合生成双中间点**，上限 **32 条 2-WP**；配 §3.0.2 压缩（是支配点的丢掉）。
+
+**候选上限**：每 demand 24 条 1-WP、32 条 2-WP。
+
+### 3.2 策略二：O-D 扫描 od_scan
+
+> 口述："原理与热中心相同的跳数球扩展，但**不按热弧的距离排序，纯按额外跳数排序**，目的是覆盖
+> 热中心可能遗漏的远距离绕行入径，实现更简单。作为热中心的补充。"
+
+```
+ODScan(t, s, tgt, cap):
+    S = HopBall(...)                       # 与 3.1 步骤 1-2 完全相同
+    sort S by (hf[w] + ht[w]) 升序           # 纯额外跳数，不看热弧
+    return S
+```
+
+- **为什么必要**：hot_center 的排序把"离热弧近"排前面，池容只有 24，**远端绕行入口会被挤掉**；
+  而"远距离绕行"恰恰是压 `max` 之后**尾部均衡**（CLAUDE.md：当前最大短板）的那类候选。
+- **实现更简单**：不需要 `HopsTo(t, From[e])` / `HopsFrom(t, To[e])` 这两次额外 BFS，
+  也不需要"能卸热"的实测过滤（省掉一批 `UnitRoute`）。
+- **代价**：1-wp 里会有更多"对热弧无直接卸载"的点进袋 → 但 2-wp 的组合仍然受 32 条上限保护。
+
+### 3.3 策略三：瓶颈 bottleneck
+
+> 口述："找出需求当前最短路上哪些弧是热的，然后分别禁用每条热弧，重新计算最短路，找到绕行路径上的
+> 中间节点，两个热弧分别禁用后得到的绕行节点，两两配对形成双中间点候选。这样生成的双中间点路径
+> **能同时绕开两个热弧**。"
+
+**步骤**：
+
+1. **找当前最短路上的热弧**：对 demand `d` 在当前 slot `t` 的**当前段路径**（`snap.segments`，`snap.go:93`）
+   逐段取 tight 弧集，与 `hots` 求交。
+   - tight 弧判据（§3.0.2 的弧版本）：
+     `DistFrom(t,seg[0])[From[a]] + Metric[a] + DistTo(t,seg[1])[To[a]] == DistFrom(t,seg[0])[seg[1]]`
+   - **"热"的口径 = 本轮分解集合**（已定，§12 Q3）：`a ∈ hots`（严格命中当轮的 `mip.HotCell` 集合），
+     **不用**"路段上饱和度超阈值"的读法。理由：与主循环的攻击目标严格一致——本轮打哪几条就只看哪几条，
+     不会引入"本轮没打算打、却被顺手 ban 了"的弧。
+2. **逐条 ban 求绕行**：对每条热弧 `e`，在 `Index` 之外用**带额外禁用集**的 Dijkstra
+   （`Dijkstra(g, s, blocked ∪ {e}, false)`）求 `s→tgt` 的最短路，收集其上的中间节点（排除 s/tgt），
+   即"绕 `e` 的候选点集 `R_e`"。
+3. **两两配对**：对 `(e1, e2)` 两条不同热弧，`R_{e1} × R_{e2}` 的组合形成 2-wp 候选 ——
+   一个点绕开 `e1`、另一个点绕开 `e2`，**一条候选同时压两条热弧**。
+4. 配 §3.0.2 压缩 + §3.0.5 签名去重，上限 32 条 2-WP。
+
+**⚠ 红线：ban 只用于"发现节点"，绝不用于"生成系数"。**
+
+参考实现原文：
+
+> "ban 热弧生成的路径若写进袋子，部署时不 ban 会走回热弧，**系数和真实路由不一致**。"
+
+本求解器的部署语义是"候选 = 不禁任何弧的 SP 段拼接"（`snap.UnitRoute` 用 `cache.Atom`，唯一禁用源是
+场景的 `Blocked[t]`）。因此：
+
+- ✅ `R_e` 里的**节点**可以进池、可以用作 waypoint；
+- ❌ `R_e` 那条**绕行路径本身**绝不能直接写进候选袋——因为部署时没有 ban，`sn.UnitRoute(d,t,[w])`
+  会重新按 IGW 最短路算，可能**又走回 `e`**，于是 MIP 里的 `frac` 与真实路由不一致（MIP 认为卸了，实际没卸）。
+- **落地保证**：所有候选的 `frac` **一律**由 `sn.UnitRoute` 现算（`pool.go:321` 已是如此），
+  候选里只存 waypoint 序列，**不存 ban 上下文**。这条要在代码注释里写明，否则后人很容易"顺手优化"成缓存绕行路径。
+
+**成本与限流**（已定，§12 Q4）：每条热弧一次 Dijkstra。当前段路径上的热弧条数通常是个位数 →
+每 demand 每 slot 个位数次 Dijkstra。比 §3.1/§3.2 的 BFS 贵，但远少于现状的 `O(n)` 次 `UnitRoute`。
+两条限流规则：
+
+1. **只对 `loadsHot[s]` 的 demand 跑**（当前段路径确实压着本轮热弧的才值得跑）；
+2. **每 demand 每 slot 的 ban 次数封顶**（默认 3，`Options.MaxBans`）——防止某 demand 的段路径
+   同时压着多条热弧时 Dijkstra 次数失控。
+
+### 3.4 合并 + 5% 池外随机
+
+```
+Merge(bags):
+    bag = ∪ bags
+    按负载签名去重（§0 术语）        # merge_bags
+    每 demand 24 条 1-WP / 32 条 2-WP 上限
+    InjectOffHotRandom(bag, pct = 0.05)
+    return bag
+```
+
+- **`inject_offhot_random`**：每 demand 再补"约 5% **不在热池里**的节点"的 1-wp 候选。
+  参考实现原文："每个 demand 再加约 5% 不在热池里的节点的 1-wp"。
+- **目的**（口述）："提供探索性，避免过度地在已知策略上（过拟合）"。
+- **可复现性**：随机采样必须**带确定性种子**（`Options.Seed`），否则同一 `-prefix` 两次跑出不同结果，
+  违反 §10 验收标准 5 与 `0910pres.design` §5 的"确定性"要求。建议 `rand.New(rand.NewSource(seed))`
+  按 `(d, t)` 派生，而不是全局 `math/rand`。
+- **5% 的分母 = 池容**（已定，§12 Q5）：`n_offhot = round(0.05 × PoolCap) = 1` 个/demand。
+  按全网节点数算在 n=400 时是 20 个，会盖过策略池，故不取。
+
+---
+
+## 4. 与本仓库现状的对接（改动面）
+
+| 现状 | 位置 | 目标 |
+|---|---|---|
+| `nodes` 一次性为**全体 demand** 建（全网节点） | `pool.go:221-228` | 换成**每 demand×每 slot** 的 `cand` 节点池（跳数球依赖 s/t，**必须**下沉到 demand 循环内） |
+| 同份逻辑复刻 | `pool_sticky.go:176-202` | 同上，共用 `cand`；sticky 的"拷贝到后续槽"逻辑（`pool_sticky.go:10-23`）**不动** |
+| `enumerate` 的 `unitAt` 死参数 | `pool.go:263` | 删掉；顺带修掉入选候选的重复路由（§1.1 问题 3） |
+| `Wp2Cap` / stride 采样 | `pool.go:81,279-296` | **保留**为兜底（`cand` 关掉时走老路径），默认不再触发 |
+| `MaxCandPerDemand`（main 传 12） | `pool.go:68`, `main.go:178` | **退役"混合截断"**（已定，§12 Q8）：不再把 1-wp + 2-wp 合并排序后截到 12，改为 `cand.MaxW1=24` / `MaxW2=32` **两个独立预算**。`MaxCandPerDemand` 字段可保留为纯安全阀（默认 0 = 不生效），但**不得**再用它合并两层 |
+
+**不改的**：`family` 划分（单槽 / twin / sticky）、`relief()` 计算、`appendMove` / `mkLoad` 的负载块拼装、
+MIP 侧的 `Problem`/`Solve`、`ecmp` 的浮点语义（红线）、`graph.Dijkstra`/`HopCounts` 的松弛顺序（红线）。
+
+---
+
+## 5. 接口设计（`solution/internal/cand/cand.go`，新包）
+
+```go
+package cand
+
+// Node 是池里的一个候选中间节点。
+type Node struct {
+    ID    int
+    Hops  int    // hf+ht：经它的总跳数（od_scan 的排序键）
+    Dist  int    // 到最近热弧端点的跳数（hot_center 的排序键；strategy≠hot 时为 0）
+    Tag   string // "hot_center" | "od_scan" | "bottleneck" | "offhot"（只打日志/调参）
+}
+
+// Pool 是一条 (demand, slot) 的定向候选节点池。
+type Pool struct {
+    Nodes []Node   // 已排序、已去重，长度 ≤ Options.PoolCap
+}
+
+type Options struct {
+    Mode        string  // "mix"(默认) | "hot_center" | "od_scan" | "bottleneck" | "off"
+    PoolCap     int     // 默认 24
+    MaxW1       int     // 每 demand 保留的 1-WP 条数，默认 24（独立预算，不与 MaxW2 合并）
+    MaxW2       int     // 每 demand 保留的 2-WP 条数，默认 32（独立预算，不与 MaxW1 合并）
+    MaxBans     int     // bottleneck 每 demand 每 slot 的 ban 次数上限，默认 3（Q4）
+    MaxExtraHop int     // 涨球的最大 extra（安全阀，防球涨满全网），默认 4
+    OffHotPct   float64 // 池外随机比例，默认 0.05
+    StretchSlack float64 // metric 拉伸 slack；v1 不实现，固定 0（§12 Q1）
+    Seed        int64   // off-hot 采样种子（确定性）
+}
+
+// Build 是唯一入口：三策略 → 合并 → 去重 → 撒随机。
+// hotArcs 是本轮分解集合在该 slot 上的弧（= hots ∩ {Slot == t}）；跳数/禁用都按 slot 取 blocked。
+func Build(ix *graph.Index, g *graph.Graph, inst *model.Instance,
+    t, demID int, hotArcs []int, opts Options) Pool
+```
+
+**`cand` 依赖的三个图原语**（前两个已有，第三个**需新增**，见 §1.3）：
+
+| 原语 | 用途 | 状态 |
+|---|---|---|
+| `Index.HopsFrom(t,s)` + `HopsTo(t,tgt)` | 跳数球（**有向**：s→w + w→tgt） | 已有 |
+| `Index.DistFrom/DistTo` | §3.0.2 tight 压缩、bottleneck 绕行节点 | 已有 |
+| `Index.HopsUnd(t,v)` | hot_center 端点排序（**无向**） | **需新增** |
+| `Dijkstra(g, s, blocked ∪ {e}, false)` | bottleneck 逐条 ban 求绕行 | 已有（调用方拼禁用集） |
+
+**依赖注入**（已定，§12 Q6）：`cand` 需要 `*graph.Index`。采用**显式注入**：
+
+```go
+// internal/mip/pool.go
+type Generator struct {
+    ...
+    Cand   cand.Options
+    CandIX *graph.Index   // 由 main 从 ecmp.Cache 取出后传入
+}
+```
+
+```go
+// internal/ecmp/ecmp.go —— 唯一需要新增的导出面（一行）
+// Index 返回本 cache 内部的图加速索引（与 ECMP atom 共用同一份 LRU 缓存）。
+func (c *Cache) Index() *graph.Index { return c.idx }
+```
+
+`main.go:178` 构造 `Generator` 时传 `cache.Index()`；`snap` 不动。
+
+⚠ **必须复用 `cache` 里那一个 Index 实例，不能另建一个**：`ecmp.go:100`（`c.idx.DistTo`）说明
+该 Index 已在 ECMP atom 计算里干活，两者共享同一 LRU。另建实例会让同一次 BFS/Dijkstra
+被算两遍，把 §7.3 的容量估算整个翻倍。
+
+**`cand` 不感知 MIP**：它只产节点池，不产 `Candidate`。`pool.go` 拿池子去跑现有的
+`waypoint_seqs` → `try_keep` → `appendMove` 流程。这样 MIP 侧**零改动**。
+
+---
+
+## 6. 算法流程（`BuildCells` 改造后的骨架）
+
+```
+BuildCells(hots):
+    ...
+    for d in demands:
+        for s in slots:                      # ← 节点池下沉到这一层（现状在循环外）
+            if !loadsHot[s]: continue
+            pool = cand.Build(ix, g, inst, s, d, hotArcsAt(s), gen.Cand)
+            alts = []
+            seenSig = {}
+            for w in pool.Nodes:                       # 1-wp
+                try_keep(alts, seenSig, []int{w.ID})
+            for (w1, w2) in pairs(pool.Nodes):         # 2-wp（上限 MaxW2）
+                try_keep(alts, seenSig, []int{w1.ID, w2.ID})
+            keep top MaxW1 by relief  ┐ 两个独立预算，各自截断
+            keep top MaxW2 by relief  ┘ （不合并排序，Q8）
+        家族循环照旧（单槽 / twin），只是 nodes 换成 pool
+```
+
+`try_keep` 内的 `sn.UnitRoute` 是**唯一**的路由调用（§3.0.5），结果同时用于 `relief` 与 `frac`。
+
+---
+
+## 7. 复杂度与预算
+
+### 7.1 候选评估次数（推算）
+
+| 量 | 现状 | 策略化 |
+|---|---|---|
+| 1-wp 评估/demand/family | `n-2` | `≤ PoolCap = 24` |
+| 2-wp 评估/demand/family | `min(C(n-2,2), Wp2Cap=8000)` | `≤ C(24,2) = 276` |
+| 2-wp **搜索空间** | `C(n-2,2)` | `276` |
+| 合计/demand/family | `(n-2) + min(C(n-2,2), 8000)` | `≤ 300` |
+
+| 实例 | n | 现状合计 | 策略化 | 倍数 |
+|---|---|---|---|---|
+| setA-01 | 20 | `18 + 153 = 171` | `≤ 24 + 276 = 300` | **略升**（球已近全网，见下） |
+| setB-01 | 264 | `262 + 8000 = 8262` | `≤ 300` | **≥27×** |
+| setA 最大 | 400 | `398 + 8000 = 8398` | `≤ 300` | **≥28×** |
+
+⚠ **setA-01 反而变贵**：n=20 时全网只有 18 个候选点，比 `PoolCap=24` 还小——策略化的池
+不会比全网更小，只是**排序不同**（换来更好的选择质量）。
+因此"策略化"的收益是**实例规模相关的**：小实例中性/略贵，大实例数量级收益。
+**已定（§12 Q7）**：默认 `Mode` **恒定 `mix`，不按 `n` 自适应**——小实例那点中性开销被接受，
+换来的是候选排序质量（策略池按"离热弧远近"排序，全网枚举没有这层信息）。
+`Mode="off"` 保留为**纯手动开关**（回归 / A/B / 兜底），不参与自动选择。
+⚠ 与 §7.3 的 LRU 容量无关：默认 Mode 不因规模变化，但 `Index.maxSize` 仍建议按 `n` 提容（那是加速层，不是策略开关）。
+
+### 7.2 BFS/Dijkstra 次数
+
+| 原语 | 次数/demand/slot |
+|---|---|
+| `HopsFrom(t,s)` + `HopsTo(t,tgt)` | 2 次 BFS（跨 demand 共享：同 source/target 只算一次） |
+| hot_center 排序额外 | +2 次**无向** BFS（`HopsUnd(t,From[e])`、`HopsUnd(t,To[e])`），**每 (t,热弧) 一次**，跨 demand 共享 |
+| bottleneck | +`#热弧在当前段路径上` 次 Dijkstra（个位数），**热弧级别共享**（禁用集 = `Blocked[t] ∪ {e}`，与 demand 无关） |
+
+关键结论：**BFS/Dijkstra 的 key 是 (t, 源/宿) 或 (t, 禁用弧)，与 demand 无关 → 天然跨 demand 复用**
+（这正是 `Index` 的 LRU 设计意图，`index.go:1-20` 的包注释）。
+
+### 7.3 ⚠ LRU 容量风险（必须处理）
+
+`Index` 默认 `maxSize = 2048`（`index.go:60`）。估算 setB-01 单轮需求：
+
+```
+distinct (t, src) × 2 kinds  ≈ 6 热槽 × 100 demands × 2(src+tgt) = 1200  → 接近上限
++ hot_center 端点 BFS        ≈ 6 × 热弧数 × 2
++ 后续轮次累积（key 永久有效，但会被 LRU 挤掉重算）
+```
+
+`hops`/`dist` 都是 `[]int`/`[]float64`，n=264 → 每数组 ~2KB；8192 条 ≈ 16MB/类，两类 ~32MB（setA n=400 ≈ 翻倍）。
+**建议**：solve 侧把 `maxSize` 从默认 2048 提到 **8192**，或按 `n` 缩放（`8*n`）。
+这不是"优化"而是"避免本功能把加速层打穿"——LRU 抖动会让每次涨球都重新 BFS。
+
+---
+
+## 8. 集成点（`cmd/solve/main.go`）
+
+1. **新开关**：`-cand-mode`（默认 `mix`，可选 `hot_center|od_scan|bottleneck|off`）、
+   `-cand-pool-cap`（默认 24）、`-cand-seed`（默认 0，确定性）。
+   ⚠ 默认值**恒为 `mix`，不随实例规模自适应**（§12 Q7）：不要写"n ≤ 32 自动 off"这类分支，
+   `off` 只由用户显式传参触发。
+2. **构造**：`main.go:178` 的 `mip.Generator` 增 `Cand: cand.Options{...}`（并把 `cache` 的 `Index` 传进去，Q6）。
+3. **两条路径**：`BuildCells`（`main.go:250`）与 `BuildSticky`（`main.go:244`）共用同一 `cand`。
+4. **报告**：每轮打印候选池规模与策略命中（只打日志，与参考实现 `k_by_t` 的"策略松弛/跳数标签，只打日志"一致）：
+   `cand: pool=24 hot=9 od=11 bottleneck=4 offhot=1 evals=300/8262`。
+5. **回退**：`-cand-mode off` 必须**逐位复现**当前行为（用于 A/B 与回归）。
+
+---
+
+## 9. 风险与红线
+
+1. **红线：`ecmp` 浮点 `==` 语义不动**（CLAUDE.md；§3.0.2 的 tight 判定也用精确 `==`，理由见该节）。
+2. **红线：ban 只用于发现节点，不用于生成系数**（§3.3）。违者 MIP 认为卸了、真实路由没卸 —— 会**静默**给出错误 `frac`。
+3. **红线：`Dijkstra`/`HopCounts` 的松弛顺序不动**（`search.go`），否则紧弧集与 ECMP 系数都会漂。
+4. **风险：池太窄漏掉好候选**。`PoolCap=24` 是参考实现的回测值；本仓库 setA/setB 的拓扑差异大，
+   需要 A/B 扫 `PoolCap ∈ {12, 24, 48}`（§10 验收 3）。
+5. **风险：小实例退化**（§7.1）→ **已定不按 `n` 自适应**（Q7）：默认恒 `mix`，接受 setA-01 的
+   中性开销；`-cand-mode off` 作手动兜底。⚠ 因此 §10 验收 2 必须**同时**报 setA-01 的耗时差，
+   确认这点开销没有把 60s 预算里的轮数压下来。
+6. **风险：随机性破坏可复现**。`offhot` 采样必须走 `Options.Seed`，否则同参数两次结果不同（§10 验收 5）。
+7. **风险：与 presolve 重复劳动**。sink 支配弧在候选层**不要**再判一次（§1.2）；候选层只做"能卸热吗"的实测过滤。
+8. **风险：`sticky_illegal` 语义**。拷贝到后续槽后因维修断开的候选，Go 侧靠 `UnitRoute` 返回 error 丢弃
+   （`pool.go:164-167`），行为与参考实现一致；改造后**不要**把 error 当致命错误（当前是 `continue`，保持）。
+9. **风险：无向排序会放"热弧下游"的点进池**（Q2 决定的无向口径的固有代价）。这些点几何上离热弧近、
+   但在流向的下游，插进去对热弧负载没有帮助，会挤占 `PoolCap`。
+   **兜底就是 §3.1 步骤 5 的实测过滤**（只让真卸了热的点进 2-wp）；1-wp 那 24 条仍可能被稀释，
+   若 A/B 显示 `hot_center` 弱于 `od_scan`，**第一个要看的就是这里**（可试"无向排序 + 有向过滤"的混合口径）。
+
+---
+
+## 10. 验收标准（可量化，落地后按此报告）
+
+1. **回归**：`-cand-mode off` 与当前 `main` 在 setA×20 上**逐实例 RESULT 完全一致**（accepted/firstbit/total_cost）。
+2. **对照**：`-cand-mode mix` vs `off`，同 `-wall-sec`，报 **打平层数 / 首 gap 落在第几层 / 该层差值**
+   （CLAUDE.md 报告规范），并给出 `solves / avg pool pairs / avg cands`（`main.go:386-388` 已有）。
+   同时报**每实例的 `solves` 与轮均 `BuildCells`/`Solve` 耗时**，用于验证 Q8 的列数放大（≤56/demand）
+   没有挤掉搜索轮数；**必须单列 setA-01**（Q7 决定的"小实例中性开销"就在这里量化）。
+3. **池容扫描**：`PoolCap ∈ {12, 24, 48}` 三轮，报每轮的"打平层数"与轮均耗时；
+   若 24 与 48 差异 < 观测噪声，取 24（省预算）。
+4. **候选质量**：新增计数（§8.4）——`hot_center` 的"卸载点/池"比值、`bottleneck` 的"命中热门 demand 数"；
+   报"每轮 2-wp 评估次数 8262 → ≤300"的**实测确认**（推算见 §7.1）。
+5. **确定性**：同参数同 seed 跑两次，`RESULT` 行与 `solves` 逐位一致；换 seed 只影响 `offhot` 那部分。
+6. **红线检查**：`ecmp` 系数与 `Dijkstra` 距离在改造前后对同一实例**逐值一致**
+   （扩 `internal/ecmp/ecmp_test.go` + `internal/graph/search_test.go`，不新建容忍度）。
+7. `go build ./...`、`go vet ./...`、`go test ./...` 通过。
+
+---
+
+## 11. 待补实测（落地前/后填）
+
+本文**没有**实测数字（§7.1 全是公式推算）。落地前建议先跑三个探针（一次性脚本，不入库）：
+
+| 待测 | 方法 |
+|---|---|
+| setB-01 单轮真实 `UnitRoute` 调用次数（现状 vs 策略） | 在 `pool.go` 的 `try_keep` 处加计数器，跑 1 轮 |
+| `HopsFrom/HopsTo` 的 (t,src) 去重率（验证 §7.3 是否需要提容量） | `Index` 加命中/未命中计数 |
+| hot_center 的"卸载点/池"比值（验证 §3.1 步骤 5 的过滤强度） | 打日志统计 |
+
+---
+
+## 12. 问题与决定（Q1–Q8 全部已定）
+
+### 12.1 已定（2026-09-10 回复）
+
+| 编号 | 问题 | 决定 |
+|---|---|---|
+| Q1 | `stretch_pool`（metric 拉伸）是否保留 | **第一版只做跳数球**，metric 拉伸不做；保留 `Options.StretchSlack` 字段但 v1 不实现 |
+| Q2 | hot_center 端点排序用有向还是无向跳数 | **无向跳数**：`d(w,e) = min(HopsUnd(t,From[e])[w], HopsUnd(t,To[e])[w])`。据此新增 `HopCountsUndirected` + `Index.HopsUnd`（§1.3）；**不**用同向公式 |
+| Q3 | bottleneck 的"热弧"口径 | **本轮分解集合** `hots`（严格 `a ∈ hots`）；**不用**路段上饱和度超阈值的读法 |
+| Q5 | `offhot` 5% 的分母 | **池容**：`round(0.05 × PoolCap) ≈ 1` 个/demand；不用全网节点数 |
+| Q4 | bottleneck 的适用范围 | **两条限流同时上**：① **只对 `loadsHot[s]` 的 demand 跑**（不压热弧的 demand 跑了也没用）；② **每 demand 每 slot 的 ban 次数封顶**，默认 3（`Options.MaxBans`）。不用"路径上饱和度超阈值"的口径（那是 Q3 否掉的） |
+| Q6 | `Index` 怎么传给 `cand` | **显式注入**：`Generator.CandIX *graph.Index`，由 main 从 `cache` 取出传入（`main.go:63` 已有 `cache`）。⚠ 需要新增**一个**导出访问器 `func (c *Cache) Index() *graph.Index`——`Cache.idx` 未导出（`ecmp.go:39`）且**已在内部干活**（`ecmp.go:100`），无法从外部拿到；**必须复用同一个实例**，另建会重复 BFS/Dijkstra。`snap` 不动 |
+| Q7 | 默认 Mode 是否按实例规模自适应 | **不自适应**：默认**恒 `mix`**，`off` 只作手动开关。接受 setA-01（n=20）的中性/略贵开销，换候选排序质量 |
+| Q8 | `MaxW1`/`MaxW2` 与 `MaxCandPerDemand` 的层级 | **两层上限不得合并成一个 12**：`MaxW1=24`、`MaxW2=32` **各自独立截断**，退役"合并排序后截到 12"。后果：进 MIP 的列数 ≤56/demand（≈4.7×），需在验收 2 盯 MIP 耗时 |
+
+**Q2 的连带影响（已在正文落实）**：
+
+- `Index` 要从 4 种 kind 扩到 5 种（`HopsUnd`），`graph/search.go` 新增无向 BFS；
+- `HopCounts` 现有的 `reverse bool` **不足以**表达无向（只选 `Outs` 或 `Ins`），必须新函数；
+- 跳数球（§3.0.1）**仍然有向**（s→w + w→tgt）——这是"经 w 的总跳数"，与端点排序的无向距离是两个量，
+  实现时不要图省事共用一个数组。
+
+### 12.2 遗留 / 新增
+
+**无遗留。** Q1–Q8 全部已定（2026-09-10 两轮回复）。落地中若发现新的口径分歧，
+在本节追加 `Q9, Q10, ...`，不要复用已定编号。
+
+### 12.3 实现期偏差（2026-09-10 落地记录）
+
+落地代码为 `internal/cand/{cand,strategies}.go` + `internal/hops/hops.go`。相对本设计有
+**两处主动偏差**，均已在代码注释中写明理由：
+
+1. **§3.0.2 `compress_waypoints` 未实现（v1 跳过）。**
+   原设计假设"若 w 落在 s→tgt 的最短路树上则可从 waypoint 列表里删掉，路径不变"。
+   该假设在 **ECMP 下不成立**：段路由把该段的可行路径限制为"经过 w 的最短路"，
+   而直达段的 ECMP 原子可能同时走若干条等价最短路；即使 w 本身在某条最短路树上，
+   去掉它也会改变该段内部的流量劈分。因此删除不可证明安全。
+   替代方案是**严格更强且零成本**的 `rel > FracEps` 精确过滤（§3.0.5 的 `try_keep` 已经做了）：
+   只有真实路由后确实给出正卸载量的序列才进袋。故 v1 直接不做压缩。
+   若日后要补，必须先证明"w 是该段唯一最短路的必经点"，代价与收益不成比例。
+
+2. **§3.4 三策略合并用 round-robin 交织，而非"拼接后截断"。**
+   设计只写了"合并到 `PoolCap`"，没写合并方式。若按策略顺序拼接再截断，
+   `hot_center` 会吃满整个 `PoolCap`，`od_scan` 保留长绕行的设计意图被完全架空。
+   实现取 **round-robin 交织**（`interleave`）：每轮各策略轮流贡献一个节点，
+   直到 `PoolCap` 用尽，保证三条策略都进池。`modesOf` 返回的顺序即交织优先级。
+
+另外两处**实现口径澄清**（非偏差，设计里未写死）：
+
+- `hopBall`（§3.0.1）的"涨球直到 |S| ≥ cap"与"直接取 hf+ht 最小的 cap 个节点"等价，
+  实现取后者（直接形式），好处是永远不会返回少于 cap 个可达节点，且天然按
+  `(总跳数, 节点 id)` 稳定排序。
+- `MaxW1` / `MaxW2` 的截断在 `Build` 末尾**分别独立**执行（§3.0.3 与 Q8 的独立预算一致），
+  两个列表先各自按卸载量降序、再各自截断，不共享计数器。
+
+### 12.4 增补：全局 relief 兜底（2026-09-10，微基准之后）
+
+**起因。** `2026-09-10_03_cand_microbench` 用 `cmd/candbench` 把候选层从 MIP 里剥出来单独测，
+量到候选层的**单 waypoint 召回率只有 21.9%**（对全节点暴力枚举的 top-12），
+且在 setA-04/10/13/16 上**丢掉了暴力枚举能找到的最好单点**（relief capture 0.92–0.98）。
+这是设计阶段没有预料到的代价：§3.0.1 的跳数球以 `MaxExtraHop=4` 为界，
+**界外的节点再多排序也进不来**。
+
+**增补。** `Options.GlobalK`（CLI `-cand-global-k`，默认 0=关闭）：
+对 demand 的**全部节点**做一次单 waypoint 真实路由扫描，取卸载量最大的 `GlobalK` 个，
+**追加**到交织后的池尾。三条性质是刻意设计的：
+
+1. **不设跳数界。** 设界正是把那个节点弄丢的原因；兜底的全部意义就是绕开跳数球。
+2. **追加在 `interleave` 之后，不参与交织。** 因此开启兜底**不会缩小**任何策略在
+   `PoolCap` 里的份额——池是"仅关闭时"的严格超集，A/B 的差异可以完全归因于新增节点，
+   不会被"池成分被重新洗牌"污染。
+3. **只产单 waypoint，不产 pair。** 丢的是单点侧（2-waypoint 侧本来就没有暴力参照，
+   且占了输出的大头、是 MIP 昂贵的原因），所以只补单点侧，pair 数量不变。
+
+**代价。** 每 family O(n) 次真实路由——与 legacy 暴力枚举的 w1 侧**同价**，且与策略共享
+`routeMemo`，策略已经路由过的节点在这里只是查表。只扫单点，不扫 `C(n,2)` 对。
+
+**效果（setA-10，`-rounds 150 -wall-sec 90`，两次重复逐位一致）：**
+
+| 臂 | firstbit | vs sprint 参照 |
+|---|---|---|
+| A legacy 枚举 | 108695 | +51.5% |
+| B v1 候选层（`GlobalK=0`） | 152174 | +112.1% |
+| B + 兜底（`GlobalK=12`） | **71739** | **±0（第 1 层精确打平）** |
+
+即 v1 候选层在 setA-10 上的回归（§12.3 之前的 A/B 已量到）被兜底**反超**：
+不仅找回暴力枚举丢掉的最优单点，还超出 legacy 34%。
+八实例完整对照见 `experiments/2026-09-10_04_cand_gk_ab/`。
+
+**已知边界（未修，待量）。** `Build` 末尾按卸载量降序后截 `MaxW1`（默认 24）。
+`GlobalK=12` 时全局 top-12 的卸载量必然 ≥ 任何池内节点，稳定排序下会排在最前，
+故 12 ≤ 24 不会被截掉；但若日后调大 `GlobalK` 或调小 `MaxW1`，兜底节点可能被静默截断。
+`GlobalK ≤ MaxW1` 是当前的安全条件。
