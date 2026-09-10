@@ -1,0 +1,31 @@
+{
+  "experiment": "2026-09-11_02_sticky_only_halo_ab",
+  "date": "2026-09-11",
+  "branch": "SOLUTION",
+  "commit": "c432181",
+  "dirty": true,
+  "dirty_note": "working tree carries the uncommitted twin deletion + halo port (solution/cmd/solve, solution/cmd/bench, solution/cmd/mipround, solution/internal/mip)",
+  "solver_binaries": {
+    "solve_sticky.exe": "sticky-only tree, per-round halo (sha256 in data/, built from this tree before the -halo-admit revert)",
+    "solve_pd.exe": "same tree with per-demand 30% halo",
+    "solve_pr.exe": "same tree after reverting to per-round trigger, keeping -halo-admit"
+  },
+  "flags": {
+    "common": "-rounds 400 -wall-sec 60 -monitor=false (setB-01: -wall-sec 180; equal-rounds arms: -rounds 40 -wall-sec 0)",
+    "arms": {
+      "off": "-halo=false",
+      "per_round": "-halo=true -halo-prob 0.30 -halo-admit 1.0 -halo-seed 0",
+      "per_demand": "-halo=true -halo-prob 1.0 -halo-admit 0.30 -halo-seed 0 (as measured: every round, 30% of demands)"
+    }
+  },
+  "seed": 0,
+  "runs_per_arm": 1,
+  "caveat": "single reproducible trajectory, not an expectation",
+  "instances": ["setA-01","setA-02","setA-03","setA-05","setA-08","setA-11","setA-15","setA-17","setB-01"],
+  "metric": "truncated-6 lexicographic load vector: tie-layer count and first-gap layer/value",
+  "not_a_metric": ["total_cost"],
+  "regression_gates": [
+    "halo off byte-identical to pre-refactor sticky baseline (sha256 f988d1e9e0ed5c60cdb91e3bae865dffe41ab76e553a4c27abb91ff016d914d9)",
+    "default arm byte-identical to the previously measured per-round arm"
+  ]
+}

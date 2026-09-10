@@ -1,0 +1,290 @@
+instance=setA-17 m=1270 T=2 demands=2000
+  start first-bit raw=1.000075149 rank=1000075  total_cost=0
+presolve: 1.48s cells=2172 deep=100 floors=56 proven=0 revoked=0 timeout=false
+  lb_sat=0.424192341 (first-bit rank 424192)  proven_pins=0 floors=56
+  pin t=0 arc=225(128->4) load=10928.0431 sat=0.424192 src=source-dom proven=false forced_demands=10
+  pin t=0 arc=396(127->170) load=8574.3106 sat=0.409979 src=sink-dom proven=false forced_demands=10
+  pin t=1 arc=225(128->4) load=9414.9296 sat=0.365458 src=source-dom proven=false forced_demands=10
+  pin t=1 arc=396(127->170) load=7229.3209 sat=0.345669 src=sink-dom proven=false forced_demands=10
+  pin t=1 arc=224(4->128) load=8069.9396 sat=0.313250 src=sink-dom proven=false forced_demands=8
+  ... 51 more pins (see -presolve-pins)
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 1 ACCEPT: first-bit rank 1000075 -> 424192  total_cost=0 changed=8 hots=3 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 2 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=16 hots=1 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 5 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=10 hots=4 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 6 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=6 hots=2 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 7 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=2 hots=1 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 10 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=8 hots=3 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 13 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=36 hots=2 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 14 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=2 hots=2 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 15 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=6 hots=2 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 18 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=2 hots=1 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 21 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=6 hots=3 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 22 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=46 hots=3 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 23 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=2 hots=3 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 26 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=18 hots=3 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 33 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=8 hots=2 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 34 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=4 hots=2 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 46 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=8 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 47 ACCEPT: first-bit rank 424192 -> 424192  total_cost=0 changed=4 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  wall-sec limit 60 reached after 48 rounds
+done: accepted=18 rejected=30  final first-bit raw=0.424192341 rank=424192  total_cost=0 budget_ok=true elapsed=52.0s
+  reject reason conf       56
+  reject reason lex        3
+  reject reason no-change  19
+  reject reason no-pool    8
+  reject reason not-proven 48
+  solves=41 avg pool pairs=37.3 avg cands=1543.7 gurobi=1.85s (3.6% of elapsed)
+  halo: rolled on 15/41 rounds, +894 pairs total (mult=3 prob=0.30 seed=0)
+  cand mode=mix pool_cap=24 max_w1=24 max_w2=32 global_k=0 hop_cache=true
+  hops queries=568861 hits=567368 misses=1493 computed=1493 sets=2
+  schedule=hot focus_n=10 hot_k=6 grow_mult=2 scale_cap=8 conf_gate=true scale=1 epoch_restarts=0
+  freeze: pre=0 soft=0 skip=46 conf_seeds=52
+  first bit PROVEN optimal: rank 424192 == structural floor 424192 (raw 0.424192341)
+RESULT setA-17 accepted=18 firstbit=424192 total_cost=0 budget_ok=true
+sprint compare: tie 15/2540 layers; first gap layer 16 (140380 vs 119336)
+    layer 16: ours 140380 vs sprint 119336
+    layer 17: ours 129666 vs sprint 114843
+    layer 18: ours 119336 vs sprint 114422
+    layer 19: ours 114843 vs sprint 109623
+    layer 20: ours 114422 vs sprint 98276
+wrote solution -> runs_diag/ab_setA-17_on.json

@@ -1,0 +1,15 @@
+{
+  "date": "2026-09-10",
+  "seq": "08",
+  "short": "mip_packing_single_model_ab",
+  "branch": "SOLUTION",
+  "base_commit": "c432181",
+  "dirty": true,
+  "note": "scripts/snapshot_env.py 在本仓库不存在，此文件为手写",
+  "instance": "setB/setB-01",
+  "command": "solve.exe -prefix ../setB/setB-01 -out <json> -rounds 400 -wall-sec 180",
+  "binaries": {
+    "new": "runs_diag/solve_v2.exe (contains mip.pairPackingRows)",
+    "old": "bin/solve.exe (no pairPackingRows symbol)"
+  }
+}

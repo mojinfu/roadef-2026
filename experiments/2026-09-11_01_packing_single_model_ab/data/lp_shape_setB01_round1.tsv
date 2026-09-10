@@ -1,0 +1,6 @@
+metric	old(convexity)	new(packing)
+binaries	1814	1814
+rows_total	1858	2654
+convexity_rows	216	0
+setpacking_rows	0	1012
+floor_rows	46	47

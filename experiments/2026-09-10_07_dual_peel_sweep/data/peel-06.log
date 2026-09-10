@@ -1,0 +1,55 @@
+instance=setA-06 m=500 T=2 demands=500
+  start first-bit raw=1.000000100 rank=1000000  total_cost=0
+presolve: 0.11s cells=785 deep=100 floors=0 proven=0 revoked=0 timeout=false
+  lb_sat=0.000000000 (first-bit rank 0)  proven_pins=0 floors=0
+Set parameter LicenseID to value 2758435
+  dual round 1 [L0free] z=0.521127 (sound floor 0.000000, +0.521127) priced=776 live=1 pairLive=0/35 pairMax=0 disagree=0/1 maxPi=0.001
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1    460     0.521127     0.521127      1000.00     -0.0010 
+        2     0      1     0.000000     0.000000     40000.00      0.0000 
+        3     0      2     0.078873     0.078873     10000.00      0.0000 
+        4     0      3     0.039437     0.039437     10000.00      0.0000 
+        5     0      4     0.000000     0.000000      5000.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  dual round 1 peel: 3 layer(s), sound floor 0.000000
+    L0 zlb=0.281690 z=0.521127 (sound floor 0.000000, +0.521127) priced=776 live=1 pairLive=0/35 pairMax=0 disagree=0/1 maxPi=0.001
+      locked: (t=0 arc=352 sat=0.521127) (t=0 arc=467 sat=0.521127) (t=1 arc=460 sat=0.521127)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1    460     0.521127     0.521127      1000.00     -0.0010 at-z
+        2     0      1     0.000000     0.000000     40000.00      0.0000 
+        3     0      2     0.078873     0.078873     10000.00      0.0000 
+        4     0      3     0.039437     0.039437     10000.00      0.0000 
+        5     0      4     0.000000     0.000000      5000.00      0.0000 
+    L1 zlb=0.000000 z=0.507042 (sound floor 0.000000, +0.507042) priced=776 live=1 pairLive=0/35 pairMax=0 disagree=1/1 maxPi=0.001
+      locked: (t=1 arc=464 sat=0.507042) (t=1 arc=466 sat=0.507042) (t=1 arc=467 sat=0.507042)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1    464     0.507042     0.507042      1000.00     -0.0010 at-z
+        2     0      1     0.000000     0.000000     40000.00      0.0000 
+        3     0      2     0.078873     0.078873     10000.00      0.0000 
+        4     0      3     0.039437     0.039437     10000.00      0.0000 
+        5     0      4     0.000000     0.000000      5000.00      0.0000 
+    L2 zlb=0.000000 z=0.464789 (sound floor 0.000000, +0.464789) priced=776 live=1 pairLive=0/35 pairMax=0 disagree=1/1 maxPi=0.0005
+      locked: (t=0 arc=494 sat=0.464789)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     0    494     0.464789     0.464789      2000.00     -0.0005 at-z
+        2     0      1     0.000000     0.000000     40000.00      0.0000 
+        3     0      2     0.078873     0.078873     10000.00      0.0000 
+        4     0      3     0.039437     0.039437     10000.00      0.0000 
+        5     0      4     0.000000     0.000000      5000.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 1 ACCEPT: first-bit rank 1000000 -> 521126  total_cost=0 changed=68 hots=6 scale=1
+done: accepted=1 rejected=0  final first-bit raw=0.521126900 rank=521126  total_cost=0 budget_ok=true elapsed=1.5s
+  solves=1 avg pool pairs=35.0 avg cands=3340.0
+  cand mode=mix pool_cap=24 max_w1=24 max_w2=32 global_k=0 hop_cache=true
+  hops queries=896 hits=786 misses=110 computed=110 sets=2
+  schedule=hot focus_n=10 hot_k=6 grow_mult=2 scale_cap=8 conf_gate=false scale=1 epoch_restarts=0
+  freeze: pre=0 soft=0 skip=0 conf_seeds=0
+RESULT setA-06 accepted=1 firstbit=521126 total_cost=0 budget_ok=true
+wrote solution -> C:/Users/xudeyi/AppData/Local/Temp/probe-06.json

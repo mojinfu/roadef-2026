@@ -60,6 +60,15 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 	if endCap > T-1 {
 		endCap = T - 1
 	}
+	// A forced universe (the halo, see Generator.ForceSlots) bounds the run as
+	// well as the slot list: a decision that wrote a slot the merged pool has no
+	// block for would address the wrong Load offset, so clip the run to the
+	// caller's last slot instead of trusting the span alone.
+	if gen.ForceSlots != nil && len(gen.ForceSlots) > 0 {
+		if hi := gen.ForceSlots[len(gen.ForceSlots)-1]; endCap > hi {
+			endCap = hi
+		}
+	}
 	hotBySlot := map[int][]int{}
 	haveTarget := false
 	for _, h := range hots {
@@ -95,6 +104,13 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 	for d := 0; d < inst.NDemands(); d++ {
 		if gen.expired() {
 			return nil, nil // ran out of wall clock: caller skips this round
+		}
+		// The halo samples the demands it unfreezes rather than taking all of
+		// them (Generator.AdmitProb).  The roll is first because it is the
+		// cheapest possible test and the gate is meant to keep the halo's
+		// candidate generation bounded.
+		if !gen.admits(d) {
+			continue
 		}
 		dem := &inst.Demands[d]
 		if dem.Volume[seed] == 0.0 {
@@ -167,16 +183,28 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 		return nil, nil
 	}
 
-	// Universe = every slot from seed up to the furthest run end.
-	slots := make([]int, 0, maxEnd-seed+1)
-	for s := seed; s <= maxEnd; s++ {
-		slots = append(slots, s)
+	// Universe = every slot from seed up to the furthest run end -- or the
+	// caller's fixed universe, which is what lets the halo's pool be merged with
+	// the base pool's into one MIP (see Generator.ForceSlots).
+	var slots []int
+	if gen.ForceSlots != nil {
+		slots = append(slots, gen.ForceSlots...)
+	} else {
+		slots = make([]int, 0, maxEnd-seed+1)
+		for s := seed; s <= maxEnd; s++ {
+			slots = append(slots, s)
+		}
 	}
 	posOf := make(map[int]int, len(slots))
 	for i, s := range slots {
 		posOf[s] = i
 	}
 	p := &Pool{inst: inst, g: g, snap: sn, m: m, T: T, Slots: slots}
+
+	// radGain accumulates, per (slot, arc) key s*m+a, the total load this pool's
+	// candidates would add there on top of the incumbent -- the arcs a detour
+	// lands on.  Only the sign and the relative size matter, so it is a plain sum.
+	radGain := map[int]float64{}
 
 	var nodes []int
 	for w := 0; w < inst.NNodes(); w++ {
@@ -248,7 +276,17 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 				if u == nil {
 					continue
 				}
-				copy(cand.Load[posOf[s]*m:posOf[s]*m+m], scaleUnit(u, dd.vol[s]))
+				newBlk := scaleUnit(u, dd.vol[s])
+				copy(cand.Load[posOf[s]*m:posOf[s]*m+m], newBlk)
+				// Whatever this run pushes above the incumbent is radiation: the
+				// arcs the copy lands on, and therefore the arcs whose demands the
+				// halo should unfreeze alongside this round.
+				cl := dd.curLoad[s]
+				for a := 0; a < m; a++ {
+					if g := newBlk[a] - cl[a]; g > gen.FracEps {
+						radGain[s*m+a] += g
+					}
+				}
 			}
 			cands = append(cands, cand)
 		}
@@ -288,6 +326,16 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 				}
 				return best
 			}
+			// The per-cell form of the same closure.  residual insists that a
+			// candidate unload the arc it was built around, which reliefAt --
+			// a max over the slot's whole target set -- cannot express.
+			arcReliefAt := func(slot, arc int, u []float64) float64 {
+				cl := dd.curLoad[slot]
+				if cl == nil || u == nil {
+					return -1
+				}
+				return cl[arc] - dd.vol[slot]*u[arc]
+			}
 			hm := map[int][]int{}
 			for _, s := range dd.run {
 				if len(hotBySlot[s]) > 0 {
@@ -295,10 +343,11 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 				}
 			}
 			alts, err := cand.Build(gen.Snap, gen.CandIX, gen.candHops(), g, inst, cand.Family{
-				D:      d,
-				Slots:  dd.run,
-				Hots:   hm,
-				Relief: reliefAt,
+				D:         d,
+				Slots:     dd.run,
+				Hots:      hm,
+				Relief:    reliefAt,
+				ArcRelief: arcReliefAt,
 			}, gen.Cand)
 			if err != nil {
 				return nil, fmt.Errorf("sticky demand %d run %v: %w", d, dd.run, err)
@@ -374,5 +423,22 @@ func (gen *Generator) BuildSticky(seed int, hots []HotCell, span int) (*Pool, er
 			p.Pairs = append(p.Pairs, Pair{D: d, Cand: cands})
 		}
 	}
+	// Freeze the radiation set in a deterministic order: biggest landing spot
+	// first, then (slot, arc).  Any cap the caller applies to the halo is then a
+	// prefix of this slice, so a truncated halo is reproducible.
+	p.Radiation = make([]HotCell, 0, len(radGain))
+	for k := range radGain {
+		p.Radiation = append(p.Radiation, HotCell{Slot: k / m, Arc: k % m})
+	}
+	sort.Slice(p.Radiation, func(i, j int) bool {
+		gi, gj := radGain[p.Radiation[i].Slot*m+p.Radiation[i].Arc], radGain[p.Radiation[j].Slot*m+p.Radiation[j].Arc]
+		if gi != gj {
+			return gi > gj
+		}
+		if p.Radiation[i].Slot != p.Radiation[j].Slot {
+			return p.Radiation[i].Slot < p.Radiation[j].Slot
+		}
+		return p.Radiation[i].Arc < p.Radiation[j].Arc
+	})
 	return p, nil
 }

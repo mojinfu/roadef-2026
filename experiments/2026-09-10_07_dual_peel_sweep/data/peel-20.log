@@ -1,0 +1,49 @@
+instance=setA-20 m=2000 T=2 demands=6000
+  start first-bit raw=0.999999333 rank=999999  total_cost=0
+presolve: 2.16s cells=3473 deep=100 floors=222 proven=0 revoked=0 timeout=false
+  lb_sat=0.991312385 (first-bit rank 991312)  proven_pins=0 floors=222
+  pin t=0 arc=31(20->15) load=216.1061 sat=0.991312 src=dodge proven=false forced_demands=46
+  pin t=1 arc=31(20->15) load=162.6179 sat=0.745954 src=dodge proven=false forced_demands=46
+  pin t=0 arc=313(175->156) load=72.5997 sat=0.648212 src=sink-dom proven=false forced_demands=24
+  pin t=1 arc=551(374->275) load=83.1861 sat=0.554574 src=sink-dom proven=false forced_demands=22
+  pin t=0 arc=490(245->320) load=118.4243 sat=0.553385 src=source-dom proven=false forced_demands=25
+  ... 217 more pins (see -presolve-pins)
+Set parameter LicenseID to value 2758435
+  dual round 1 [L0free] z=0.991312 (sound floor 0.991312, +0.000000) priced=1525 live=1 pairLive=0/43 pairMax=0 disagree=0/1 maxPi=0.00458716
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     0     31     0.991312     0.991312       218.00     -0.0046 
+        2     0      0     0.117640     0.117640       400.00      0.0000 
+        3     0      1     0.132200     0.132200       619.00      0.0000 
+        4     0      2     0.041249     0.041249       908.00      0.0000 
+        5     0      5     0.099815     0.099815       300.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  dual round 1 peel: 3 layer(s), sound floor 0.991312
+    L0 zlb=0.991312 z=0.991312 (sound floor 0.991312, +0.000000) priced=1525 live=0 pairLive=0/43 pairMax=0 disagree=0/0 maxPi=0
+      locked: (t=0 arc=31 sat=0.991312)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     0      0     0.117640     0.117640       400.00      0.0000 
+        2     0      1     0.132200     0.132200       619.00      0.0000 
+        3     0      2     0.041249     0.041249       908.00      0.0000 
+        4     0      5     0.099815     0.099815       300.00      0.0000 
+        5     0      9     0.240131     0.240131       897.00      0.0000 
+    L1 zlb=0.000000 z=0.745954 (sound floor 0.991312, +-0.245359) priced=1525 live=1 pairLive=0/43 pairMax=0 disagree=0/1 maxPi=0.00458716
+      locked: (t=0 arc=1698 sat=0.745954) (t=1 arc=31 sat=0.745954) (t=1 arc=1698 sat=0.745954)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1     31     0.745954     0.745954       218.00     -0.0046 at-z
+        2     0      0     0.117640     0.117640       400.00      0.0000 
+        3     0      1     0.132200     0.132200       619.00      0.0000 
+        4     0      2     0.041249     0.041249       908.00      0.0000 
+        5     0      5     0.099815     0.099815       300.00      0.0000 
+    L2 zlb=0.000000 z=0.435676 (sound floor 0.991312, +-0.555637) priced=1525 live=1 pairLive=1/43 pairMax=0.0114 disagree=0/1 maxPi=0.00319489
+      locked: (t=1 arc=98 sat=0.435676)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1     98     0.447081     0.435676       313.00     -0.0032 at-z
+        2     0      0     0.117640     0.117640       400.00      0.0000 
+        3     0      1     0.132200     0.132200       619.00      0.0000 
+        4     0      2     0.041249     0.041249       908.00      0.0000 
+        5     0      5     0.099815     0.099815       300.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435

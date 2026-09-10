@@ -1,0 +1,55 @@
+instance=setA-13 m=1000 T=2 demands=2000
+  start first-bit raw=0.999999000 rank=999999  total_cost=0
+presolve: 0.30s cells=1741 deep=100 floors=0 proven=0 revoked=0 timeout=false
+  lb_sat=0.000000000 (first-bit rank 0)  proven_pins=0 floors=0
+Set parameter LicenseID to value 2758435
+  dual round 1 [L0free] z=0.438034 (sound floor 0.000000, +0.438034) priced=1560 live=1 pairLive=1/103 pairMax=0.0107 sumLcap=1.000000 disagree=0/1 maxPi=0.0005
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1    442     0.448717     0.438034      2000.00     -0.0005 
+        2     0      4     0.004188     0.004487    100000.00      0.0000 
+        3     0      5     0.004402     0.004957    100000.00      0.0000 
+        4     0      8     0.009829     0.009829     20000.00      0.0000 
+        5     0      9     0.010897     0.010897     20000.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  dual round 1 peel: 3 layer(s), sound floor 0.000000
+    L0 zlb=0.277777 z=0.438034 (sound floor 0.000000, +0.438034) priced=1560 live=1 pairLive=1/103 pairMax=0.0107 sumLcap=1.000000 disagree=0/1 maxPi=0.0005
+      locked: (t=0 arc=964 sat=0.438034) (t=1 arc=442 sat=0.438034) (t=1 arc=964 sat=0.438034)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1    442     0.448717     0.438034      2000.00     -0.0005 at-z
+        2     0      4     0.004188     0.004487    100000.00      0.0000 
+        3     0      5     0.004402     0.004957    100000.00      0.0000 
+        4     0      8     0.009829     0.009829     20000.00      0.0000 
+        5     0      9     0.010897     0.010897     20000.00      0.0000 
+    L1 zlb=0.000000 z=0.397436 (sound floor 0.000000, +0.397436) priced=1560 live=1 pairLive=1/103 pairMax=0.00214 sumLcap=1.000000 disagree=1/1 maxPi=0.0005
+      locked: (t=0 arc=442 sat=0.397436) (t=1 arc=905 sat=0.397436)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     0    442     0.399572     0.397436      2000.00     -0.0005 at-z
+        2     0      4     0.004188     0.004188    100000.00      0.0000 
+        3     0      5     0.004402     0.004957    100000.00      0.0000 
+        4     0      8     0.009829     0.010043     20000.00      0.0000 
+        5     0      9     0.010897     0.010897     20000.00      0.0000 
+    L2 zlb=0.000000 z=0.344017 (sound floor 0.000000, +0.344017) priced=1560 live=1 pairLive=1/103 pairMax=0.0192 sumLcap=1.000000 disagree=1/1 maxPi=0.0005
+      locked: (t=0 arc=275 sat=0.344017) (t=0 arc=658 sat=0.344017) (t=0 arc=904 sat=0.344017) (t=0 arc=905 sat=0.344017) +4 more
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1    443     0.363248     0.344017      2000.00     -0.0005 at-z
+        2     0      4     0.004188     0.004487    100000.00      0.0000 
+        3     0      5     0.004402     0.004786    100000.00      0.0000 
+        4     0      8     0.009829     0.009829     20000.00      0.0000 
+        5     0      9     0.010897     0.010897     20000.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 1 ACCEPT: first-bit rank 999999 -> 438033  total_cost=3 changed=205 hots=6 scale=1
+done: accepted=1 rejected=0  final first-bit raw=0.438033750 rank=438033  total_cost=3 budget_ok=true elapsed=4.7s
+  solves=1 avg pool pairs=103.0 avg cands=9559.0 gurobi=0.34s (7.1% of elapsed)
+  cand mode=mix pool_cap=24 max_w1=24 max_w2=32 global_k=0 hop_cache=true
+  hops queries=3296 hits=3060 misses=236 computed=236 sets=2
+  schedule=hot focus_n=10 hot_k=6 grow_mult=2 scale_cap=8 conf_gate=false scale=1 epoch_restarts=0
+  freeze: pre=0 soft=0 skip=0 conf_seeds=0
+RESULT setA-13 accepted=1 firstbit=438033 total_cost=3 budget_ok=true
+wrote solution -> C:/Users/xudeyi/AppData/Local/Temp/inv-13.json

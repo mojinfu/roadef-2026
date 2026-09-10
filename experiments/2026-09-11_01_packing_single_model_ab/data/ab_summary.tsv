@@ -1,0 +1,5 @@
+instance	arm	round	accepted	firstbit_rank	floor_rank	total_cost	budget_ok
+setB-01	new(packing)	1	17	531288	141921	188	true
+setB-01	new(packing)	2	17	531288	141921	188	true
+setB-01	old(convexity)	1	11	531312	141921	225	true
+setB-01	old(convexity)	2	11	531312	141921	225	true

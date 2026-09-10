@@ -10,27 +10,45 @@
 // evaluations are provably useless (they relieve nothing and are dropped after
 // being fully routed).
 //
-// Three strategies replace it.  Each first builds a *hop ball* around the
+// Four strategies replace it.  Each first builds a *hop ball* around the
 // demand's shortest path -- the nodes whose detour s->w->tgt costs at most a
 // few extra hops over the direct s->tgt -- and then ranks and prunes that ball
 // differently:
 //
 //	hot_center  rank by undirected hop distance to the two endpoints of the
-//	            round's hot arc; keep only nodes that provably offload a hot
-//	            arc as pairing material, so 2-waypoint candidates are built
-//	            from evidence instead of geometry.  This is what makes larger
-//	            detours affordable: pool stays at PoolCap (24) instead of n-2.
+//	            round's hot arc, so the capped pool is spent on nodes that can
+//	            actually move load off it.  This is what makes larger detours
+//	            affordable: pool stays at PoolCap (24) instead of n-2.
 //	od_scan     the same ball ranked by pure extra hops, with no hot-arc
 //	            knowledge at all.  Its job is to keep the long detours that
 //	            hot_center's proximity ranking would crowd out of a capped pool
 //	            -- exactly the shapes that balance the *tail* of the load
 //	            vector, which is the solver's current weak spot.
 //	bottleneck  find which of the round's hot arcs the demand actually crosses
-//	            on its current shortest path, ban each one in turn, take the
-//	            intermediate nodes of the detour, and cross the detour node sets
-//	            of two *different* hot arcs so one candidate relieves both.
+//	            on its current shortest path, ban each one in turn, and take the
+//	            intermediate nodes of the detour.  Out of the mix; selectable on
+//	            its own.
+//	residual    ban the hottest crossed arc, take the first turning point from
+//	            the shortest-path DAG that survives the ban, then ban the hottest
+//	            hot arc the resulting path still presses and take the second
+//	            turning point from that residual.  The pair is *serial* (the
+//	            second point is found on the path the first one produced, not
+//	            crossed from an independent detour) and every candidate it emits
+//	            must unload the first arc.
 //
-// The three pools are merged round-robin (so no single strategy can crowd the
+// Both the 1- and the 2-waypoint side are targeted now.  The mix used to build
+// its 2-waypoint side by crossing two independently chosen singletons -- every
+// pair of the pooled nodes (od_scan), of the offload-proven ones (hot_center),
+// or of two different hot arcs' detours (bottleneck).  A pair chosen that way
+// composes by accident: nothing in the search makes the second turning point
+// complementary to the first.  residual is the replacement and is the only
+// strategy that emits pairs, so ModeMix is hot_center+od_scan+residual.
+//
+// Each strategy is self-contained: it reads one demand's family and returns its
+// own pool, so any subset of them composes (Options.Mode accepts a "+"-joined
+// list) and switching one on never changes what another proposes.
+//
+// The pools are merged round-robin (so no single strategy can crowd the
 // others out of a capped pool), deduplicated by *load signature*, capped per
 // shape with two independent budgets, and topped up with ~5% off-hot random
 // nodes for exploration.
@@ -58,6 +76,7 @@ import (
 	"math"
 	"math/rand"
 	"sort"
+	"strings"
 
 	"tasr/internal/graph"
 	"tasr/internal/model"
@@ -103,6 +122,7 @@ const (
 	ModeHotCenter  = "hot_center"
 	ModeODScan     = "od_scan"
 	ModeBottleneck = "bottleneck"
+	ModeResidual   = "residual"
 
 	// TagGlobal marks a node admitted by the global-relief safety net.  It is a
 	// candidate *tag*, never a Mode: the net is switched with Options.GlobalK
@@ -137,6 +157,21 @@ type Options struct {
 	OffHotPct    float64 // off-hot random top-up, as a fraction of PoolCap
 	StretchSlack float64 // metric-stretch band; reserved, not implemented in v1 (always 0)
 	Seed         int64   // deterministic seed for the off-hot sample
+
+	// ResidualMinHot is residual's engagement gate: the demand's current path
+	// must press at least this many of the round's hot arcs. Two is the
+	// strategy's premise -- relieving one hot arc with one waypoint is what the
+	// singleton strategies already do, and the pair exists to stop the detour
+	// from simply landing on the next hot arc. Set it to 1 to let the strategy
+	// also generate for single-arc demands (it then degenerates to the "no B"
+	// branch, i.e. plain singletons discovered through a ban).
+	ResidualMinHot int
+	// ResidualU caps the first turning points taken from the A-free
+	// shortest-path DAG, per demand per slot.
+	ResidualU int
+	// ResidualV caps the second turning points taken from the {A,B}-free
+	// residual, per first turning point.
+	ResidualV int
 
 	// GlobalK enables the global-relief safety net: route every node as a
 	// singleton and append the GlobalK that relieve the most, beyond whatever
@@ -178,6 +213,15 @@ func (o Options) withDefaults() Options {
 	if o.OffHotPct <= 0 {
 		o.OffHotPct = 0.05
 	}
+	if o.ResidualMinHot <= 0 {
+		o.ResidualMinHot = 2
+	}
+	if o.ResidualU <= 0 {
+		o.ResidualU = 8
+	}
+	if o.ResidualV <= 0 {
+		o.ResidualV = 8
+	}
 	return o
 }
 
@@ -207,10 +251,22 @@ type Node struct {
 // on slot's hot arcs; it returns a negative value when the slot has no target,
 // so taking the max over a family's slots ignores it.
 type Family struct {
-	D      int
-	Slots  []int
+	D     int
+	Slots []int
+	// Hots is the round's target arcs per slot, ordered hottest-first. The
+	// order is load-bearing for residual, which reads Hots[slot][0]-crossed as
+	// "the hottest arc the demand presses": the scheduler hands them over in
+	// descending load order (sched.Decision.Hots), and every strategy that
+	// needs a "hottest first" pick relies on that rather than re-deriving it.
 	Hots   map[int][]int
 	Relief func(slot int, unit []float64) float64
+	// ArcRelief, when non-nil, is Relief's per-cell form: how much a routed
+	// unit vector unloads one specific (slot, arc) cell. residual uses it to
+	// insist that a candidate unloads the particular arc it was built around,
+	// which the family-wide Relief cannot express. A caller that leaves it nil
+	// still gets candidates -- residual then falls back to the family-wide test
+	// -- but it cannot separate the arc it targeted from the rest of the set.
+	ArcRelief func(slot, arc int, unit []float64) float64
 }
 
 // Alt is one accepted alternative: its waypoint list, the unit-load vector it
@@ -220,6 +276,13 @@ type Alt struct {
 	Units map[int][]float64
 	Rel   float64
 	Tag   string
+}
+
+// pairRef is one 2-waypoint candidate's node pair plus the tag of the strategy
+// that proposed it.
+type pairRef struct {
+	ab  [2]int
+	tag string
 }
 
 // Build renders a family's alternatives.
@@ -253,11 +316,13 @@ func Build(rt Router, ix *graph.Index, hp Hops, g *graph.Graph, inst *model.Inst
 	for _, m := range modes {
 		switch m {
 		case ModeHotCenter:
-			pools = append(pools, hotCenter(memo, hp, g, inst, fam, opts))
+			pools = append(pools, hotCenter(hp, g, inst, fam, opts))
 		case ModeODScan:
 			pools = append(pools, odScan(hp, inst, fam, opts))
 		case ModeBottleneck:
 			pools = append(pools, bottleneck(memo, ix, g, inst, fam, opts))
+		case ModeResidual:
+			pools = append(pools, residual(memo, ix, hp, g, inst, fam, opts))
 		}
 	}
 
@@ -275,11 +340,12 @@ func Build(rt Router, ix *graph.Index, hp Hops, g *graph.Graph, inst *model.Inst
 
 	// 2b. Global-relief safety net.  Appended *after* the interleave rather than
 	// merged into it, so switching it on cannot shrink any strategy's share of
-	// the capped pool: the pool is a strict superset of what the mode alone
-	// builds, and an A/B that flips GlobalK attributes the difference to the
-	// added nodes alone.  These nodes are deliberately not offered as pairing
-	// material -- the loss being repaired is on the singleton side, and the pair
-	// count is what makes the MIP expensive.
+	// the capped pool, and step 6 gives it its own emission budget so it cannot
+	// displace a pool singleton either.  Together those make the net additive
+	// end to end: an A/B that flips GlobalK attributes the difference to the
+	// added nodes alone, with nothing removed to pay for them.  These nodes are
+	// deliberately not offered as pairing material -- the loss being repaired is
+	// on the singleton side, and the pair count is what makes the MIP expensive.
 	if opts.GlobalK > 0 {
 		for _, n := range globalRelief(memo, inst, fam, opts) {
 			if inPool[n.ID] {
@@ -291,16 +357,22 @@ func Build(rt Router, ix *graph.Index, hp Hops, g *graph.Graph, inst *model.Inst
 	}
 
 	// 3. Pairing material: the union of the strategies' explicit pairs,
-	// restricted to nodes that survived the merge.
+	// restricted to nodes that survived the merge.  Each pair keeps the tag of
+	// the strategy that proposed it, so a composed mode still attributes it
+	// correctly.
 	seenPair := map[[2]int]bool{}
-	var pairs [][2]int
+	var pairs []pairRef
 	for _, p := range pools {
 		for _, pr := range p.pairs {
 			if !inPool[pr[0]] || !inPool[pr[1]] || seenPair[pr] {
 				continue
 			}
 			seenPair[pr] = true
-			pairs = append(pairs, pr)
+			tag := p.pairTag
+			if tag == "" {
+				tag = opts.Mode
+			}
+			pairs = append(pairs, pairRef{ab: pr, tag: tag})
 		}
 	}
 
@@ -315,7 +387,7 @@ func Build(rt Router, ix *graph.Index, hp Hops, g *graph.Graph, inst *model.Inst
 		seqs = append(seqs, seq{wps: []int{n.ID}, tag: n.Tag})
 	}
 	for _, pr := range pairs {
-		seqs = append(seqs, seq{wps: []int{pr[0], pr[1]}, tag: opts.Mode})
+		seqs = append(seqs, seq{wps: []int{pr.ab[0], pr.ab[1]}, tag: pr.tag})
 	}
 	for _, w := range offhotSample(inst, fam, inPool, opts) {
 		seqs = append(seqs, seq{wps: []int{w}, tag: "offhot"})
@@ -350,15 +422,36 @@ func Build(rt Router, ix *graph.Index, hp Hops, g *graph.Graph, inst *model.Inst
 	// 6. Two independent budgets.  Never merge these lists and truncate once:
 	// a single shared cap of 12 is exactly what the legacy generator did and
 	// what this design retires.
+	//
+	// The global-relief net gets its own budget *on top of* MaxW1 rather than
+	// competing for it.  The two are not interchangeable: the pool's
+	// tail-oriented long detours (od_scan) are what tie the layers after the
+	// first, while the net exists to fix the first.  Letting a net node take a
+	// MaxW1 slot therefore trades the tail for the head -- measured on setA-04
+	// as tie layers 10 -> 1 at an unchanged first bit.  Separate budgets make
+	// the net additive at the *emitted* level, not merely at the pool level.
 	sortByRelief(w1)
 	sortByRelief(w2)
-	if len(w1) > opts.MaxW1 {
-		w1 = w1[:opts.MaxW1]
+	var poolW1, netW1 []Alt
+	for _, a := range w1 {
+		if a.Tag == TagGlobal {
+			netW1 = append(netW1, a)
+		} else {
+			poolW1 = append(poolW1, a)
+		}
+	}
+	if len(poolW1) > opts.MaxW1 {
+		poolW1 = poolW1[:opts.MaxW1]
 	}
 	if len(w2) > opts.MaxW2 {
 		w2 = w2[:opts.MaxW2]
 	}
-	return append(w1, w2...), nil
+	// Re-sort the union so the documented ordering (decreasing relief) still
+	// holds.  The sort is stable and the pool is inserted first, so ties keep
+	// favouring the pool.
+	merged := append(poolW1, netW1...)
+	sortByRelief(merged)
+	return append(merged, w2...), nil
 }
 
 // reliefOf is the best relief a candidate gives across the family's slots.  A
@@ -384,16 +477,39 @@ func sortByRelief(a []Alt) {
 }
 
 // modesOf expands a mode into the strategy list it runs.
+//
+// A mode may also be a "+"-joined composition ("mix+residual",
+// "bottleneck+residual"), which is how the strategies are A/B'd and combined
+// while each stays independent: a strategy reads only its own family and its own
+// options, so adding one never changes what another proposes. Order is
+// load-bearing -- it is the round-robin priority when the merged pool is capped
+// -- so duplicates are dropped by first appearance rather than sorted.
 func modesOf(mode string) []string {
-	switch mode {
-	case ModeMix:
-		// Order matters: it is the round-robin priority when the merged pool is
-		// capped, and hot_center is the primary strategy.
-		return []string{ModeHotCenter, ModeODScan, ModeBottleneck}
-	case ModeHotCenter, ModeODScan, ModeBottleneck:
-		return []string{mode}
+	var out []string
+	seen := map[string]bool{}
+	add := func(ms ...string) {
+		for _, m := range ms {
+			if seen[m] {
+				continue
+			}
+			seen[m] = true
+			out = append(out, m)
+		}
 	}
-	return nil
+	for _, part := range strings.Split(mode, "+") {
+		switch part {
+		case ModeMix:
+			// hot_center is the primary strategy, so it leads the rotation.
+			// residual is the mix's only source of 2-waypoint candidates;
+			// bottleneck is deliberately not in it (see the package doc).
+			add(ModeHotCenter, ModeODScan, ModeResidual)
+		case ModeHotCenter, ModeODScan, ModeBottleneck, ModeResidual:
+			add(part)
+		default:
+			return nil
+		}
+	}
+	return out
 }
 
 // interleave merges already-ranked node lists round-robin, dropping duplicate
@@ -491,8 +607,8 @@ func sigOf(slots []int, units map[int][]float64) string {
 }
 
 // routeMemo caches the unit vector of one (demand, slot, waypoint list) so a
-// node routed while the pool is being built (hot_center's offload test) is not
-// routed a second time when its sequence is emitted.  This is also the fix for
+// candidate routed while the pool is being built (residual's turning-point walk)
+// is not routed a second time when its sequence is emitted.  This is also the fix for
 // the legacy generator's double routing: it routed every surviving candidate
 // once inside the relief closure and again when materialising the move.
 type routeMemo struct {

@@ -1,0 +1,65 @@
+{
+  "experiment": "2026-09-10_05_cand_gk_ab",
+  "milestone": "M5-cand-global-relief-net",
+  "date": "2026-09-10",
+  "branch": "SOLUTION",
+  "commit": "71eb7f1",
+  "dirty": true,
+  "code_state": "71eb7f1 + uncommitted: internal/cand/{cand,strategies,cand_test}.go add Options.GlobalK + TagGlobal + globalRelief scan + separate emission budgets in Build step 6 (4 new tests); cmd/solve/main.go -cand-global-k flag + startup log field; cmd/bench/main.go -cand-global-k passthrough. Everything else as in 2026-09-10_04. NOTE: scripts/snapshot_env.py referenced by CLAUDE.md is not present in this tree; meta.json hand-written in the same format as 2026-09-10_02/03/04.",
+  "solver": "cmd/solve, two arms over 8 instances. G0 = -cand-mode mix -cand-global-k 0. G12 = -cand-mode mix -cand-global-k 12. All other flags identical: -rounds 150 -wall-sec 90 -hot-k 6 -peel 6 -model twin -budget-mode full -presolve unmovable -presolve-time 15 -presolve-deep 100 -skip-floor=true -cand-hop-cache=true.",
+  "why": "The 2026-09-10_03 microbenchmark measured singleton recall at 21.9% and found that on setA-04/10/13/16 the candidate pool does not contain the best singleton that brute-force ranking finds. This experiment measures the fix (a global-relief safety net that routes every node as a singleton) in the outer loop, where it must pay for itself in wall clock as well as in candidate quality.",
+  "arms": {
+    "G0": "no net -- the v1 targeted pool, identical to the B arm of 2026-09-10_04",
+    "G12": "net on, GlobalK=12 -- scan every node as a singleton, append the 12 best-relief ones after the round-robin interleave, with their own emission budget"
+  },
+  "attribution": "The net is additive by construction: it is appended after the interleave (so it cannot shrink any strategy's pool share) and Build step 6 emits it outside MaxW1 (so it cannot displace a pool singleton). Any A/B difference therefore comes from the added nodes alone.",
+  "coverage": {"instances": 8, "of_total": 20, "set": "setA-01,04,06,10,13,15,16,19"},
+  "reference": "sprint_results/loads_vector.csv layer 1",
+  "headline_results": {
+    "g12_firstbit_strictly_better": "3/8, all three reaching EXACT layer-1 parity with the sprint reference: setA-06 101408 -> 98591 (-2.78%, tie 0 -> 4/1000), setA-10 152174 -> 71739 (-52.9%, tie 0 -> 1/1932), setA-13 42735 -> 41025 (-4.00%, tie 0 -> 4/2000)",
+    "neutral": "2/8: setA-01 (929383, tie 1/160 both), setA-15 (898695, tie 18/2500 both, but wall 31.3s -> 54.0s at the same 142 solves)",
+    "g12_worse": "3/8: setA-04 (firstbit unchanged 581237 but tie layers 10 -> 1 -- the only tail regression), setA-16 (143442 -> 170901), setA-19 (157845 -> 191569)",
+    "vector_parity": "0/8 instances tie the whole vector",
+    "wall_total": "G0 375.3s vs G12 398.6s = +6.2% over the 7 instances with both rows"
+  },
+  "starvation_evidence": {
+    "claim": "the setA-19/setA-16 regressions are round starvation (the net's O(n)-per-family scan costs rounds inside a fixed wall), not worse candidate quality",
+    "measurement": "setA-19 G12 at -wall-sec 240 gives firstbit 89929, versus G0 at 90s 157845 and G12 at 90s 191569. Same net, 2.7x the wall, -53% firstbit, and far better than the net-off arm.",
+    "throughput": "setA-06 128 -> 104 solves, setA-13 46 -> 37, setA-19 8 -> 5; setA-15 keeps 142 solves but 31.3s -> 54.0s (+73%)",
+    "competition_caveat": "the official checker allows 10 min/instance, 6.7x this test budget, so the starvation should largely abate -- but this report does NOT claim a win on the hard instances without a 600s measurement (listed as next step)"
+  },
+  "setA_16_row_caveat": {
+    "symptom": "no summary row: cmd/bench printed 'NO RESULT (skipped, will retry on rerun)'",
+    "cause": "the run hit -wall-sec and took the emergency path at cmd/solve/main.go:139-153, which writes the solution then os.Exit(0) WITHOUT printing RESULT. (Not a bug in the run: cmd/bench deliberately leaves the row empty rather than write an NA, because resume treats any existing row as cached.)",
+    "workaround": "the solution was scored offline with cmd/validate -srpaths: firstbit 170901, tie 0/2904 layers, first gap layer 1",
+    "not_fixed": "the emergency path still does not print RESULT"
+  },
+  "defect_found_and_fixed": {
+    "symptom": "net nodes are the global top-K by relief, so ranking-then-truncating to MaxW1 would push high-relief POOL singletons out of the emitted list -- trading the tail (od_scan's long detours) for the head (the net), since the two are not interchangeable",
+    "fix": "Build step 6 splits the 1-waypoint list by Tag, truncates the pool list to MaxW1, emits the net list outside that budget (it is already bounded by GlobalK), then stable-sorts the union by relief with the pool inserted first so ties favour the pool",
+    "test": "TestGlobalReliefDoesNotDisplacePoolSingletons -- verified to fail pre-fix with 'net displaced pool singleton 3: singles are [9 1 2], want 1,2,3 plus 9'",
+    "honest_limitation": "this defect is NOT why setA-04 lost its tail. setA-04 G12 measured byte-identically before and after the fix (firstbit 581237, tie 1/500, first gap layer 2, 580858 vs 580857, twice). The setA-04 tail loss is a separate, still-unfixed mechanism: 12 extra columns change the MIP's lex-peel trajectory (same firstbit, tie layers 10 -> 1)."
+  },
+  "red_lines_checked": [
+    "internal/ecmp exact float == untouched; Dijkstra/HopCounts relaxation order untouched",
+    "GlobalK defaults to 0, and with netW1 empty the step-6 split degenerates to the previous code path, so the net-off arm is behaviourally identical to the B arm of 2026-09-10_04",
+    "the net emits singletons only -- the 2-waypoint side (most of the output and most of the MIP cost) is unchanged",
+    "the scan is deliberately not hop-bounded, because the hop bound (MaxExtraHop=4) is exactly what lost the node in the first place",
+    "selection is deterministic: stable sort over ascending node id, so equal relief breaks toward the lower id",
+    "gofmt -l internal/ cmd/ empty, go vet ./... clean, go test ./... all pass (including the 4 new GlobalRelief tests)"
+  ],
+  "decision": {
+    "cand_global_k_default": "kept at 0 (opt-in). The net wins on the small instances at a 90s wall but starves the big ones, and the competition budget is 10 min/instance where that may not bind -- but that has not been measured.",
+    "next": "bound the net's cost (e.g. replace the full-node scan with a widened hop ball, which the BFS cache makes nearly free) or scale GlobalK with n; then re-measure setA-16/19 at 600s."
+  },
+  "data_files": {
+    "data/gk_ab/{G0,G12}/summary.tsv": "raw per-instance rows for both arms",
+    "data/gk_ab/{G0,G12}/setA-*.json": "the solutions each arm wrote",
+    "data/gk_ab/gk_ab.tsv": "the summary table produced by tabulate_gk_ab.py; verified reproducible from the copied data in this directory",
+    "data/run_gk_ab.sh": "the two-arm instance-outer runner (includes the concurrency guard)",
+    "data/tabulate_gk_ab.py": "the summariser",
+    "data/setA-16_G12_emergency.json": "setA-16 G12's emergency-path solution (the source of that row's firstbit)",
+    "data/setA-19_G12_wall240.json": "setA-19 G12 at -wall-sec 240 (the starvation evidence)",
+    "report.md": "this report"
+  }
+}

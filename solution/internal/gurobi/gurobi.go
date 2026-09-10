@@ -36,23 +36,25 @@ var (
 	loadOnce sync.Once
 	loadErr  error
 
-	procLoadEnv       *syscall.LazyProc
-	procNewModel      *syscall.LazyProc
-	procAddVars       *syscall.LazyProc
-	procAddConstrs    *syscall.LazyProc
-	procSetIntParam   *syscall.LazyProc
-	procSetParam      *syscall.LazyProc
-	procSetIntAttr    *syscall.LazyProc
-	procSetDblAttrArr *syscall.LazyProc
-	procGetIntAttr    *syscall.LazyProc
-	procGetDblAttr    *syscall.LazyProc
-	procGetDblAttrArr *syscall.LazyProc
-	procUpdate        *syscall.LazyProc
-	procOptimize      *syscall.LazyProc
-	procTerminate     *syscall.LazyProc
-	procFreeModel     *syscall.LazyProc
-	procFreeEnv       *syscall.LazyProc
-	procWrite         *syscall.LazyProc
+	procLoadEnv        *syscall.LazyProc
+	procNewModel       *syscall.LazyProc
+	procAddVars        *syscall.LazyProc
+	procAddConstrs     *syscall.LazyProc
+	procSetIntParam    *syscall.LazyProc
+	procSetParam       *syscall.LazyProc
+	procSetIntAttr     *syscall.LazyProc
+	procSetDblAttrArr  *syscall.LazyProc
+	procGetIntAttr     *syscall.LazyProc
+	procGetDblAttr     *syscall.LazyProc
+	procGetDblAttrArr  *syscall.LazyProc
+	procGetDblAttrElem *syscall.LazyProc
+	procGetDblAttrList *syscall.LazyProc
+	procUpdate         *syscall.LazyProc
+	procOptimize       *syscall.LazyProc
+	procTerminate      *syscall.LazyProc
+	procFreeModel      *syscall.LazyProc
+	procFreeEnv        *syscall.LazyProc
+	procWrite          *syscall.LazyProc
 )
 
 // dllCandidates returns likely locations of gurobi130.dll on this machine.
@@ -97,6 +99,8 @@ func load() error {
 			{"GRBgetintattr", &procGetIntAttr},
 			{"GRBgetdblattr", &procGetDblAttr},
 			{"GRBgetdblattrarray", &procGetDblAttrArr},
+			{"GRBgetdblattrelement", &procGetDblAttrElem},
+			{"GRBgetdblattrlist", &procGetDblAttrList},
 			{"GRBupdatemodel", &procUpdate},
 			{"GRBoptimize", &procOptimize},
 			{"GRBterminate", &procTerminate},
@@ -259,6 +263,36 @@ func (m *Model) GetDblAttrArray(name string, first int, vals []float64) error {
 	return call(procGetDblAttrArr, "GRBgetdblattrarray", uintptr(m.p),
 		uintptr(unsafe.Pointer(cstr(name))), uintptr(first), uintptr(len(vals)),
 		uintptr(unsafe.Pointer(&vals[0])))
+}
+
+// DblAttrElement reads one element of a double-valued array attribute.  idx
+// addresses a variable *or* a constraint, depending on attrname.
+//
+// This is how constraint duals are read: Gurobi 13 exports no
+// GRBgetdblattrconstr (verified against the DLL's export table), so the
+// constraint accessors are GRBgetdblattrelement and GRBgetdblattrlist.  Both
+// take only integer indices and pointers, so unlike a scalar-double entry point
+// they pass the Windows x64 ABI rule this package lives under.
+func (m *Model) DblAttrElement(name string, idx int) (float64, error) {
+	var v float64
+	if err := call(procGetDblAttrElem, "GRBgetdblattrelement", uintptr(m.p),
+		uintptr(unsafe.Pointer(cstr(name))), uintptr(idx),
+		uintptr(unsafe.Pointer(&v))); err != nil {
+		return 0, err
+	}
+	return v, nil
+}
+
+// GetDblAttrList reads a double array attribute for an explicit index list.
+// ind must be sorted in ascending order (Gurobi requires it); vals receives the
+// values in the same order.
+func (m *Model) GetDblAttrList(name string, ind []int32, vals []float64) error {
+	if len(ind) != len(vals) {
+		return fmt.Errorf("gurobi GetDblAttrList: length mismatch")
+	}
+	return call(procGetDblAttrList, "GRBgetdblattrlist", uintptr(m.p),
+		uintptr(unsafe.Pointer(cstr(name))), uintptr(len(ind)),
+		uintptr(unsafe.Pointer(&ind[0])), uintptr(unsafe.Pointer(&vals[0])))
 }
 
 // X reads the current solution values of all variables into vals.

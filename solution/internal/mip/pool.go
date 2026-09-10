@@ -5,12 +5,12 @@
 // vector, subject to the Hamming budget.
 //
 // A candidate is an *atomic move* for one demand: it writes one waypoint list
-// to a chosen subset of the pool's time slots (a single slot, or a twin pair of
-// adjacent slots that both get the same waypoints so the inter-slot Hamming
-// distance stays 0).  Because every demand is moved by at most one candidate
-// per round, the transition Hamming cost of each candidate is a precomputed
-// scalar against the *current* other-slot routings, so the budget rows stay
-// linear and exact (no bilinear cross-slot coupling).
+// to the slots of that demand's sticky run, so the run's inter-slot Hamming
+// distance stays 0 (pool_sticky.go has the run semantics).  Because every
+// demand is moved by at most one candidate per round, the transition Hamming
+// cost of each candidate is a precomputed scalar against the *current*
+// other-slot routings, so the budget rows stay linear and exact (no bilinear
+// cross-slot coupling).
 //
 // The MIP works over precomputed ECMP loads, so it is a pure 0-1 selection
 // problem with no embedded shortest paths.  Candidates that leave a slot
@@ -60,6 +60,51 @@ type Pool struct {
 	T     int
 	Slots []int // time slots in this pool's universe (sorted ascending)
 	Pairs []Pair
+	// Radiation lists, in (slot, arc) form, the cells this pool's candidates
+	// would put *more* load on than the incumbent does -- where a detour lands.
+	// It is the halo's seed set: the demands sitting on those arcs get crowded
+	// out by the relief this pool is about to buy, and unfreezing them in the
+	// same MIP is what lets the round find a landing spot instead of pushing the
+	// hot corner into the next corner.  Sorted by descending total gained load,
+	// then (slot, arc), so a truncated halo is deterministic.
+	Radiation []HotCell
+}
+
+// Cover is the fraction of the network's arcs that at least one candidate
+// column of this pool traverses: distinct arcs used / total arcs (design doc
+// §15).  It is how broad the round's search was, and the caller turns it into
+// the confidence increment miss_delta = cover**0.25 for a round the MIP proved
+// optimal but that still could not drop the first bit: a wide search that
+// failed is much stronger evidence that the seed is immovable than a narrow
+// one.  The panel of "no move" columns contributes nothing -- Move is false on
+// them, so they are not counted.
+//
+// Cost is O(candidates x moved slots x m); the MIP round it feeds costs orders
+// of magnitude more, so it is computed once per round rather than cached.
+func (p *Pool) Cover() float64 {
+	if p.m <= 0 || len(p.Pairs) == 0 {
+		return 0
+	}
+	seen := make([]bool, p.m)
+	n := 0
+	for i := range p.Pairs {
+		for j := range p.Pairs[i].Cand {
+			c := &p.Pairs[i].Cand[j]
+			for si, moved := range c.Move {
+				if !moved {
+					continue
+				}
+				base := si * p.m
+				for a := 0; a < p.m; a++ {
+					if !seen[a] && c.Load[base+a] > 0 {
+						seen[a] = true
+						n++
+					}
+				}
+			}
+		}
+	}
+	return float64(n) / float64(p.m)
 }
 
 // Generator builds a pool for the given hot cells.
@@ -90,6 +135,52 @@ type Generator struct {
 	// demand per strategy), so it is where a runaway would otherwise eat the
 	// whole wall-clock budget.  Zero means no cap (used by tests).
 	Deadline time.Time
+
+	// ForceSlots pins the pool's slot universe instead of deriving it from the
+	// hot cells.  The halo needs this: its hot cells are the radiation cells of
+	// an already-built pool, and the two pools get merged into one MIP, whose
+	// candidate Load blocks are addressed by position in Pool.Slots.  Deriving a
+	// second, narrower universe for the halo would give the merged pairs
+	// incompatible block layouts.
+	ForceSlots []int
+
+	// AdmitProb, when strictly between 0 and 1, gates every demand on a roll:
+	// the demand enters the pool only if its draw is below the probability.  The
+	// halo uses this because it is a gamble, not a stable gain -- it unfreezes
+	// demands that were crowded out by this round's own detours, and unfreezing
+	// them wholesale is as likely to trade one saturated corner for another as to
+	// find a landing spot.  Sampling the demand set makes the halo a perturbation
+	// of the base pool rather than a deterministic superset of it.  0 or 1
+	// disables the gate, which is what the base build wants.
+	//
+	// The draw is a hash of (AdmitSeed, AdmitRound, demand), not a value pulled
+	// from a shared stream, so demand d's answer does not depend on how many
+	// demands were tested before it and the pool is reproducible from the seed
+	// alone (see admits).
+	AdmitProb  float64
+	AdmitSeed  int64
+	AdmitRound int
+}
+
+// admits reports whether demand d enters this pool.  A gate that is off (prob
+// <= 0) admits everything that reaches the caller; a probability of 1 admits
+// everything as well, so the roll only ever *removes* demands.
+func (gen *Generator) admits(d int) bool {
+	if gen.AdmitProb >= 1 {
+		return true
+	}
+	if gen.AdmitProb <= 0 {
+		return true // no gate configured: the base build admits on its own tests
+	}
+	x := uint64(gen.AdmitSeed)*0x9E3779B97F4A7C15 ^
+		uint64(gen.AdmitRound)*0xBF58476D1CE4E5B9 ^
+		uint64(d)*0x94D049BB133111EB
+	x ^= x >> 30
+	x *= 0xBF58476D1CE4E5B9
+	x ^= x >> 27
+	x *= 0x94D049BB133111EB
+	x ^= x >> 31
+	return float64(x>>11)/float64(uint64(1)<<53) < gen.AdmitProb
 }
 
 // expired reports whether the generator's deadline has passed.
@@ -123,362 +214,128 @@ func (gen *Generator) candHops() cand.Hops {
 // identically to an uncapped run, so small instances are unaffected.
 const defaultWp2Cap = 8000
 
-// Build returns a single-slot pool relieving one hot arc at slot t.
-func (gen *Generator) Build(t, arcA int) (*Pool, error) {
-	return gen.BuildCells([]HotCell{{Slot: t, Arc: arcA}})
+// ExpandHalo merges the halo into pool and returns it.
+//
+// The problem it addresses: a round only ever unfreezes the demands that
+// currently load a hot cell (see the activity test in BuildSticky).  But a detour
+// does not delete load, it moves it -- every candidate that relieves a hot cell
+// puts that traffic onto some other arc, and the demands already sitting on
+// those arcs are then squeezed by a decision they had no say in.  The MIP cannot
+// see that coming, because those demands are not in the pool.  So the round
+// relieves the packed corner by packing the next one.
+//
+// The halo is the second pool built against pool.Radiation -- the cells the
+// round's own candidates newly load -- merged into the first.  Its demands get
+// candidates that relieve the radiation cells, so the MIP can move them out of
+// the way in the same solve, and the shared z keeps it from trading one hot cell
+// for another.
+//
+// The size is bounded on both axes by mult x the base pool's demand count, which
+// the caller passes as the "non-halo budget": at most that many radiation cells
+// are targeted, and at most that many new demands are admitted.  Radiation is
+// already ordered by descending gained load, so a truncation keeps the biggest
+// landing spots and is deterministic.
+//
+// Inside that bound each demand is admitted on its own roll at probability prob
+// (see Generator.AdmitProb): the halo is a perturbation of the base pool, so it
+// samples the crowded demands instead of deterministically taking all of them.
+// prob >= 1 restores the take-everything behaviour.
+func (gen *Generator) ExpandHalo(pool *Pool, seed, span, round, mult int, prob float64) (*Pool, error) {
+	if pool == nil || mult <= 0 || len(pool.Radiation) == 0 {
+		return pool, nil
+	}
+	// The halo run is clipped to the base pool's universe (ForceSlots) and to the
+	// base round's own copy horizon, so both pools address the same Load blocks
+	// and the merged pairs mean the same thing.
+	if len(pool.Slots) == 0 {
+		return nil, fmt.Errorf("mip: ExpandHalo needs a pool with a fixed slot universe")
+	}
+	budget := len(pool.Pairs)
+	if budget == 0 {
+		return pool, nil
+	}
+	limit := mult * budget
+	rad := pool.Radiation
+	if len(rad) > limit {
+		rad = rad[:limit]
+	}
+
+	hg := *gen
+	hg.ForceSlots = pool.Slots // the merged pairs must share one block layout
+	// Each demand enters the halo on its own draw, so the halo is a random
+	// sample of the crowded demands rather than all of them (see admits).
+	hg.AdmitProb = prob
+	hg.AdmitRound = round
+	hp, err := hg.BuildSticky(seed, rad, span)
+	if err != nil {
+		return nil, err
+	}
+	if hp == nil || len(hp.Pairs) == 0 {
+		return pool, nil
+	}
+
+	idx := make(map[int]int, len(pool.Pairs))
+	for i := range pool.Pairs {
+		idx[pool.Pairs[i].D] = i
+	}
+	added := 0
+	for _, hp2 := range hp.Pairs {
+		if i, ok := idx[hp2.D]; ok {
+			pool.Pairs[i] = mergePair(pool.Pairs[i], hp2)
+			continue
+		}
+		if added >= limit {
+			break
+		}
+		idx[hp2.D] = len(pool.Pairs)
+		pool.Pairs = append(pool.Pairs, hp2)
+		added++
+	}
+	// The MIP indexes pairs by demand order only through its own base[] slice,
+	// so this is cosmetic -- but it makes two runs' pools print identically.
+	sort.Slice(pool.Pairs, func(i, j int) bool { return pool.Pairs[i].D < pool.Pairs[j].D })
+	return pool, nil
 }
 
-// BuildCells returns the pool of demands whose current routing loads at least
-// one hot cell, with single-slot and twin-pair alternatives that strictly
-// reduce the load of at least one hot cell.
-//
-// The pool universe is the hot slots extended by their immediate neighbours so
-// that a twin (same waypoints on both endpoints of a transition, distance 0)
-// can be offered for the cheapest kind of relief.  Candidates are generated per
-// demand and family (each hot slot individually, plus each adjacent pair that
-// the demand is active on), deduplicated inside a family, ranked by the largest
-// relief they give to any hot cell, and truncated to MaxCandPerDemand each.
-func (gen *Generator) BuildCells(hots []HotCell) (*Pool, error) {
-	if gen.MaxCandPerDemand <= 0 {
-		gen.MaxCandPerDemand = 8
+// mergePair unions b's moves into a, keeping a's candidate 0 (the "current
+// routing" reference, which buildMode reads as the pair's incumbent).  Identity
+// is (waypoints, move mask): the same waypoint list offered for different slots
+// is two different moves.
+func mergePair(a, b Pair) Pair {
+	seen := make(map[string]bool, len(a.Cand))
+	for _, c := range a.Cand {
+		seen[candKey(c)] = true
 	}
-	if gen.FracEps <= 0 {
-		gen.FracEps = 1e-9
-	}
-	if gen.Wp2Cap <= 0 {
-		gen.Wp2Cap = defaultWp2Cap
-	}
-	if len(hots) == 0 {
-		return nil, fmt.Errorf("mip: BuildCells with empty hot-cell set")
-	}
-	inst, g, sn := gen.Inst, gen.G, gen.Snap
-	m, T := g.M, inst.NSlots
-
-	// Universe = hot slots plus their immediate transition neighbours.
-	univ := map[int]bool{}
-	for _, h := range hots {
-		univ[h.Slot] = true
-		if h.Slot > 0 {
-			univ[h.Slot-1] = true
+	for k, c := range b.Cand {
+		if k == 0 {
+			continue // a's candidate 0 is the reference and stays where it is
 		}
-		if h.Slot+1 < T {
-			univ[h.Slot+1] = true
-		}
-	}
-	var slots []int
-	for s := range univ {
-		slots = append(slots, s)
-	}
-	sort.Ints(slots)
-	posOf := make(map[int]int, len(slots))
-	for i, s := range slots {
-		posOf[s] = i
-	}
-	hotBySlot := map[int][]int{}
-	for _, h := range hots {
-		hotBySlot[h.Slot] = append(hotBySlot[h.Slot], h.Arc)
-	}
-
-	p := &Pool{inst: inst, g: g, snap: sn, m: m, T: T, Slots: slots}
-	keyOf := func(w []int) string {
-		b := make([]byte, 0, len(w)*4)
-		for _, x := range w {
-			b = append(b, byte(x>>8), byte(x))
-		}
-		return string(b)
-	}
-
-	n := inst.NNodes()
-	for d := 0; d < inst.NDemands(); d++ {
-		if gen.expired() {
-			return nil, nil // ran out of wall clock: caller skips this round
-		}
-		dem := &inst.Demands[d]
-
-		// Current per-slot contribution of this demand inside the universe.
-		curWps := map[int][]int{}
-		curUnit := map[int][]float64{}
-		curLoad := map[int][]float64{}
-		vol := map[int]float64{}
-		active := false
-		for _, s := range slots {
-			v := dem.Volume[s]
-			if v == 0.0 {
-				continue
-			}
-			w := sn.GetWaypoints(d, s)
-			u, err := sn.UnitRoute(d, s, w)
-			if err != nil {
-				continue // current routing disconnected: skip this demand
-			}
-			curWps[s] = w
-			curUnit[s] = u
-			curLoad[s] = scaleUnit(u, v)
-			vol[s] = v
-			active = true
-		}
-		if !active {
+		key := candKey(c)
+		if seen[key] {
 			continue
 		}
-
-		// Which hot cells does this demand load?
-		loadsHot := map[int]bool{}
-		anyHot := false
-		for _, s := range slots {
-			cl := curLoad[s]
-			if cl == nil {
-				continue
-			}
-			for _, ha := range hotBySlot[s] {
-				if cl[ha] > gen.FracEps {
-					loadsHot[s] = true
-					anyHot = true
-					break
-				}
-			}
-		}
-		if !anyHot {
-			continue
-		}
-
-		// Shared helper: base block slice of the demand's current contribution
-		// at a slot (nil -> zero vector).  Unmoved blocks alias these slices,
-		// which are never mutated, so aliasing is safe.
-		blk := func(s int, into []float64) []float64 {
-			base := posOf[s] * m
-			if cl := curLoad[s]; cl != nil {
-				copy(into[base:base+m], cl)
-			}
-			return into[base : base+m]
-		}
-
-		mkLoad := func(moved []int) []float64 {
-			out := make([]float64, len(slots)*m)
-			for _, s := range slots {
-				blk(s, out)
-			}
-			return out
-		}
-
-		cands := []Candidate{{
-			Move: make([]bool, len(slots)),
-			Load: mkLoad(nil),
-		}}
-		// The whole network node set is the waypoint search space.
-		var nodes []int
-		for w := 0; w < n; w++ {
-			if w == dem.Source || w == dem.Target {
-				continue
-			}
-			nodes = append(nodes, w)
-		}
-
-		appendMove := func(movedSlots []int, wps []int, unitBySlot map[int][]float64) {
-			cand := Candidate{
-				Wps:  append([]int(nil), wps...),
-				Move: make([]bool, len(slots)),
-				Load: mkLoad(nil),
-			}
-			for _, s := range movedSlots {
-				cand.Move[posOf[s]] = true
-				u := unitBySlot[s]
-				if u == nil {
-					continue
-				}
-				copy(cand.Load[posOf[s]*m:posOf[s]*m+m], scaleUnit(u, vol[s]))
-			}
-			cands = append(cands, cand)
-		}
-
-		// bestRel of a per-slot unit vector against the arcs hot at that slot.
-		// A slot the demand is not active on has no incumbent load, so it
-		// reports no relief (the cand path may probe slots outside this
-		// demand's map).
-		relief := func(slot int, unit []float64, targetArcs []int) float64 {
-			cl := curLoad[slot]
-			if cl == nil || unit == nil {
-				return -1
-			}
-			best := -1.0
-			for _, ha := range targetArcs {
-				if r := cl[ha] - vol[slot]*unit[ha]; r > best {
-					best = r
-				}
-			}
-			return best
-		}
-
-		// Enumerate 1-waypoint and 2-waypoint lists and keep those with relief.
-		type alt struct {
-			wps []int
-			rel float64
-		}
-		enumerate := func(relFor func(wps []int) float64, unitAt func(wps []int) ([]float64, error)) []alt {
-			var alts []alt
-			seen := map[string]bool{}
-			try := func(wps []int) {
-				k := keyOf(wps)
-				if seen[k] {
-					return
-				}
-				seen[k] = true
-				if rel := relFor(wps); rel > gen.FracEps {
-					alts = append(alts, alt{wps: wps, rel: rel})
-				}
-			}
-			for _, w := range nodes {
-				try([]int{w})
-			}
-			pairs := len(nodes) * (len(nodes) - 1) / 2
-			step := 1
-			if pairs > gen.Wp2Cap {
-				// Stride-sample so an over-cap scan still covers the pair space
-				// evenly instead of exhausting it.  cnt counts every pair, so
-				// step spreads the ~Wp2Cap evaluations across all (i,j).
-				step = (pairs + gen.Wp2Cap - 1) / gen.Wp2Cap
-			}
-			cnt := 0
-			for i := 0; i < len(nodes); i++ {
-				for j := i + 1; j < len(nodes); j++ {
-					cnt++
-					if step > 1 && cnt%step != 0 {
-						continue
-					}
-					try([]int{nodes[i], nodes[j]})
-				}
-			}
-			sort.Slice(alts, func(i, j int) bool { return alts[i].rel > alts[j].rel })
-			if len(alts) > gen.MaxCandPerDemand {
-				alts = alts[:gen.MaxCandPerDemand]
-			}
-			return alts
-		}
-
-		// Single-slot families: reroute the slot whose hot cell we relieve.
-		for _, s := range slots {
-			if !loadsHot[s] {
-				continue
-			}
-			target := hotBySlot[s]
-			if gen.candOn() {
-				alts, err := cand.Build(gen.Snap, gen.CandIX, gen.candHops(), g, inst, cand.Family{
-					D:     d,
-					Slots: []int{s},
-					Hots:  map[int][]int{s: target},
-					Relief: func(slot int, u []float64) float64 {
-						return relief(slot, u, hotBySlot[slot])
-					},
-				}, gen.Cand)
-				if err != nil {
-					return nil, fmt.Errorf("demand %d slot %d: %w", d, s, err)
-				}
-				for _, a := range alts {
-					appendMove([]int{s}, a.Wps, a.Units)
-				}
-				continue
-			}
-			alts := enumerate(
-				func(wps []int) float64 {
-					u, err := sn.UnitRoute(d, s, wps)
-					if err != nil {
-						return -1
-					}
-					return relief(s, u, target)
-				},
-				func(wps []int) ([]float64, error) { return sn.UnitRoute(d, s, wps) },
-			)
-			for _, a := range alts {
-				u, _ := sn.UnitRoute(d, s, a.wps)
-				appendMove([]int{s}, a.wps, map[int][]float64{s: u})
-			}
-		}
-
-		// Twin families: same waypoints on both endpoints of an adjacent
-		// (u, v = u+1) pair inside the universe.  The two slots then have
-		// identical node-pair chains, so their mutual Hamming cost stays 0 and
-		// the relief is budget-free.
-		for _, u := range slots {
-			v := u + 1
-			if v >= T || !univ[v] {
-				continue
-			}
-			if vol[u] == 0.0 || vol[v] == 0.0 {
-				continue
-			}
-			if !loadsHot[u] && !loadsHot[v] {
-				continue
-			}
-			var target []HotCell
-			for _, h := range hots {
-				if (h.Slot == u || h.Slot == v) && loadsHot[h.Slot] {
-					target = append(target, h)
-				}
-			}
-			if gen.candOn() {
-				// Only the slots that actually load a hot cell carry targets; the
-				// other endpoint still gets the same waypoints written (that is
-				// what makes the pair a twin), it just has nothing to relieve.
-				hm := map[int][]int{}
-				for _, h := range hots {
-					if (h.Slot == u || h.Slot == v) && loadsHot[h.Slot] {
-						hm[h.Slot] = append(hm[h.Slot], h.Arc)
-					}
-				}
-				alts, err := cand.Build(gen.Snap, gen.CandIX, gen.candHops(), g, inst, cand.Family{
-					D:     d,
-					Slots: []int{u, v},
-					Hots:  hm,
-					Relief: func(slot int, uu []float64) float64 {
-						return relief(slot, uu, hm[slot])
-					},
-				}, gen.Cand)
-				if err != nil {
-					return nil, fmt.Errorf("demand %d twin %d-%d: %w", d, u, v, err)
-				}
-				for _, a := range alts {
-					appendMove([]int{u, v}, a.Wps, a.Units)
-				}
-				continue
-			}
-			alts := enumerate(
-				func(wps []int) float64 {
-					uA, errA := sn.UnitRoute(d, u, wps)
-					uB, errB := sn.UnitRoute(d, v, wps)
-					if errA != nil || errB != nil {
-						return -1
-					}
-					best := -1.0
-					for _, h := range target {
-						cl := curLoad[h.Slot]
-						var uu []float64
-						if h.Slot == u {
-							uu = uA
-						} else {
-							uu = uB
-						}
-						if r := cl[h.Arc] - vol[h.Slot]*uu[h.Arc]; r > best {
-							best = r
-						}
-					}
-					return best
-				},
-				func(wps []int) ([]float64, error) {
-					return sn.UnitRoute(d, u, wps)
-				},
-			)
-			for _, a := range alts {
-				uA, _ := sn.UnitRoute(d, u, a.wps)
-				uB, _ := sn.UnitRoute(d, v, a.wps)
-				appendMove([]int{u, v}, a.wps, map[int][]float64{u: uA, v: uB})
-			}
-		}
-
-		if len(cands) <= 1 {
-			continue // no 1-wp or 2-wp move relieves any hot cell for this demand
-		}
-		p.Pairs = append(p.Pairs, Pair{D: d, Cand: cands})
+		seen[key] = true
+		a.Cand = append(a.Cand, c)
 	}
-	return p, nil
+	return a
+}
+
+// candKey is the identity of a candidate for dedup: its waypoints plus which
+// slots it moves.
+func candKey(c Candidate) string {
+	b := make([]byte, 0, 2*len(c.Wps)+len(c.Move))
+	for _, x := range c.Wps {
+		b = append(b, byte(x>>8), byte(x))
+	}
+	b = append(b, 0xff)
+	for _, m := range c.Move {
+		if m {
+			b = append(b, 1)
+		} else {
+			b = append(b, 0)
+		}
+	}
+	return string(b)
 }
 
 func scaleUnit(unit []float64, vol float64) []float64 {

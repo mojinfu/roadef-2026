@@ -1,0 +1,128 @@
+instance=setB-01 m=864 T=12 demands=6519
+  start first-bit raw=0.999998000 rank=999998  total_cost=0
+presolve: 1.11s cells=5166 deep=100 floors=384 proven=0 revoked=0 timeout=false
+  lb_sat=0.141921333 (first-bit rank 141921)  proven_pins=0 floors=384
+  pin t=9 arc=283(123->122) load=1.2773 sat=0.141921 src=sink-dom proven=false forced_demands=82
+  pin t=10 arc=283(123->122) load=1.1791 sat=0.131014 src=sink-dom proven=false forced_demands=80
+  pin t=9 arc=46(12->20) load=1.0859 sat=0.108586 src=sink-dom proven=false forced_demands=71
+  pin t=8 arc=283(123->122) load=0.9342 sat=0.103797 src=sink-dom proven=false forced_demands=81
+  pin t=7 arc=33(15->1) load=0.1029 sat=0.102899 src=source-dom proven=false forced_demands=76
+  ... 379 more pins (see -presolve-pins)
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 1 ACCEPT: first-bit rank 999998 -> 617601  total_cost=84 changed=32 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 2 ACCEPT: first-bit rank 617601 -> 531312  total_cost=154 changed=37 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 3 ACCEPT: first-bit rank 531312 -> 531312  total_cost=170 changed=19 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 6 ACCEPT: first-bit rank 531312 -> 531312  total_cost=180 changed=17 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 7 ACCEPT: first-bit rank 531312 -> 531312  total_cost=204 changed=13 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 8 ACCEPT: first-bit rank 531312 -> 531312  total_cost=208 changed=6 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 11 ACCEPT: first-bit rank 531312 -> 531312  total_cost=208 changed=7 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 14 ACCEPT: first-bit rank 531312 -> 531312  total_cost=228 changed=31 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 17 ACCEPT: first-bit rank 531312 -> 531312  total_cost=225 changed=16 hots=6 scale=1
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 18 ACCEPT: first-bit rank 531312 -> 531312  total_cost=231 changed=10 hots=6 scale=1

@@ -1,0 +1,55 @@
+instance=setA-10 m=966 T=2 demands=1000
+  start first-bit raw=1.000000100 rank=1000000  total_cost=0
+presolve: 0.16s cells=1432 deep=100 floors=0 proven=0 revoked=0 timeout=false
+  lb_sat=0.000000000 (first-bit rank 0)  proven_pins=0 floors=0
+Set parameter LicenseID to value 2758435
+  dual round 1 [L0free] z=0.426087 (sound floor 0.000000, +0.426087) priced=1321 live=1 pairLive=0/98 pairMax=0 sumLcap=1.000000 disagree=1/1 maxPi=0.0002
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1    928     0.443478     0.426087      5000.00     -0.0002 
+        2     0      0     0.019565     0.019565      5000.00      0.0000 
+        3     0      2     0.002989     0.003397     40000.00      0.0000 
+        4     0      3     0.002174     0.007337     40000.00      0.0000 
+        5     0      4     0.040217     0.040217     10000.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  dual round 1 peel: 3 layer(s), sound floor 0.000000
+    L0 zlb=0.179348 z=0.426087 (sound floor 0.000000, +0.426087) priced=1321 live=1 pairLive=0/98 pairMax=0 sumLcap=1.000000 disagree=1/1 maxPi=0.0002
+      locked: (t=0 arc=929 sat=0.426087) (t=0 arc=962 sat=0.426087) (t=0 arc=963 sat=0.426087) (t=1 arc=162 sat=0.426087) +5 more
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1    928     0.443478     0.426087      5000.00     -0.0002 at-z
+        2     0      0     0.019565     0.019565      5000.00      0.0000 
+        3     0      2     0.002989     0.003397     40000.00      0.0000 
+        4     0      3     0.002174     0.007337     40000.00      0.0000 
+        5     0      4     0.040217     0.040217     10000.00      0.0000 
+    L1 zlb=0.000000 z=0.408696 (sound floor 0.000000, +0.408696) priced=1321 live=1 pairLive=0/98 pairMax=0 sumLcap=1.000000 disagree=1/1 maxPi=0.0002
+      locked: (t=0 arc=163 sat=0.408696) (t=0 arc=599 sat=0.408696) (t=0 arc=928 sat=0.408696)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     0    928     0.430435     0.408696      5000.00     -0.0002 at-z
+        2     0      0     0.019565     0.019565      5000.00      0.0000 
+        3     0      2     0.002989     0.007276     40000.00      0.0000 
+        4     0      3     0.002174     0.006793     40000.00      0.0000 
+        5     0      4     0.040217     0.040217     10000.00      0.0000 
+    L2 zlb=0.000000 z=0.400000 (sound floor 0.000000, +0.400000) priced=1321 live=1 pairLive=2/98 pairMax=0.013 sumLcap=1.000000 disagree=1/1 maxPi=0.0002
+      locked: (t=1 arc=929 sat=0.400000)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1    929     0.423913     0.400000      5000.00     -0.0002 at-z
+        2     0      0     0.019565     0.019565      5000.00      0.0000 
+        3     0      2     0.002989     0.007697     40000.00      0.0000 
+        4     0      3     0.002174     0.004348     40000.00      0.0000 
+        5     0      4     0.040217     0.040217     10000.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 1 ACCEPT: first-bit rank 1000000 -> 426087  total_cost=0 changed=180 hots=6 scale=1
+done: accepted=1 rejected=0  final first-bit raw=0.426087060 rank=426087  total_cost=0 budget_ok=true elapsed=2.8s
+  solves=1 avg pool pairs=98.0 avg cands=6542.0 gurobi=0.19s (6.6% of elapsed)
+  cand mode=mix pool_cap=24 max_w1=24 max_w2=32 global_k=0 hop_cache=true
+  hops queries=2036 hits=1809 misses=227 computed=227 sets=2
+  schedule=hot focus_n=10 hot_k=6 grow_mult=2 scale_cap=8 conf_gate=false scale=1 epoch_restarts=0
+  freeze: pre=0 soft=0 skip=0 conf_seeds=0
+RESULT setA-10 accepted=1 firstbit=426087 total_cost=0 budget_ok=true
+wrote solution -> C:/Users/xudeyi/AppData/Local/Temp/inv-10.json

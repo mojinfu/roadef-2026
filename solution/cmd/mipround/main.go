@@ -63,7 +63,10 @@ func main() {
 	fmt.Printf("  hot key: slot=%d arc=%d sat=%.9f\n", ht, ha, hsat)
 
 	gen := &mip.Generator{Inst: inst, G: g, Snap: sn, MaxCandPerDemand: 8}
-	pool, err := gen.Build(ht, ha)
+	// Sticky is the only pool builder now: a single-slot probe is the span-1 run
+	// anchored at the hot slot (it still copies onto the next slot when that slot
+	// carries volume).
+	pool, err := gen.BuildSticky(ht, []mip.HotCell{{Slot: ht, Arc: ha}}, 1)
 	if err != nil {
 		fatal(err)
 	}

@@ -1,0 +1,21 @@
+instance=setA-18 m=1500 T=2 demands=2000
+  start first-bit raw=0.999998765 rank=999998  total_cost=0
+presolve: 1.10s cells=2359 deep=100 floors=178 proven=0 revoked=0 timeout=false
+  lb_sat=0.999998765 (first-bit rank 999998)  proven_pins=0 floors=178
+  first bit already at the structural floor: start rank 999998 == lb rank 999998 (optimal for layer 1)
+  pin t=1 arc=163(133->81) load=161.9998 sat=0.999999 src=bridge proven=false forced_demands=20
+  pin t=1 arc=507(62->253) load=99.8275 sat=0.713054 src=sink-dom proven=false forced_demands=6
+  pin t=0 arc=276(138->90) load=108.3055 sat=0.633365 src=source-dom proven=false forced_demands=9
+  pin t=0 arc=163(133->81) load=99.5985 sat=0.614806 src=bridge proven=false forced_demands=19
+  pin t=1 arc=436(218->275) load=142.6763 sat=0.497130 src=source-dom proven=false forced_demands=13
+  ... 173 more pins (see -presolve-pins)
+done: accepted=0 rejected=1  final first-bit raw=0.999998765 rank=999998  total_cost=0 budget_ok=true elapsed=3.0s
+  reject reason no-pool    1
+  reject reason not-proven 6
+  cand mode=mix pool_cap=24 max_w1=24 max_w2=32 global_k=0 hop_cache=true
+  hops queries=1820 hits=1677 misses=143 computed=143 sets=2
+  schedule=hot focus_n=10 hot_k=6 grow_mult=2 scale_cap=8 conf_gate=false scale=1 epoch_restarts=0
+  freeze: pre=0 soft=0 skip=0 conf_seeds=6
+  first bit PROVEN optimal: rank 999998 == structural floor 999998 (raw 0.999998765)
+RESULT setA-18 accepted=0 firstbit=999998 total_cost=0 budget_ok=true
+wrote solution -> C:/Users/xudeyi/AppData/Local/Temp/probe-18.json

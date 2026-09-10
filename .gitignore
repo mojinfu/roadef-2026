@@ -8,6 +8,9 @@ __pycache__/
 # Build outputs and benchmark scratch: regenerated on every run, never source.
 # solution/_pyref/*.py stays tracked on purpose -- only the run dirs are ignored.
 *.exe
+# A full scratch copy of the repo (checker/ doc/ setA/ setB/ solution/ ...),
+# kept out of git so `git add -A` cannot commit 56 MB of duplication.
+_headwt/
 _pyref/
 solution/runs_*/
 solution/_pyref/cand_ab/

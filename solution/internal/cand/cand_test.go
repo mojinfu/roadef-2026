@@ -177,32 +177,47 @@ func TestHopBallCapsAndOrdersByExtraCost(t *testing.T) {
 }
 
 // The two caps must be applied to the 1-waypoint and 2-waypoint lists
-// independently.  A single merged cap (what the legacy generator did) would
-// return 2 candidates here, not 4.
+// independently.  A single merged cap of 2 (what the legacy generator did)
+// would spend both slots on singletons and return no pair at all.
+//
+// The ladder is used because the 2-waypoint side now comes only from residual,
+// and this is the smallest graph where it produces one.  Its two orders (2,3)
+// and (3,2) route identically under the fake router -- which is injective on
+// the waypoint *set*, not the sequence -- so they collapse to a single pair.
 func TestBuildAppliesTwoIndependentBudgets(t *testing.T) {
-	inst, g, ix := testGraph(t, 12)
-	rt := &fakeRouter{n: 12}
-	fam := Family{D: 0, Slots: []int{0}, Hots: map[int][]int{}, Relief: alwaysRelief}
+	inst := serialLadderInstance()
+	g := graph.New(inst)
+	ix := graph.NewIndex(g, inst.Scenario.Blocked, 0)
+	fam := serialFamily()
 
-	alts, err := Build(rt, ix, fakeHops{n: 12}, g, inst, fam, Options{
-		Mode: ModeODScan, MaxW1: 2, MaxW2: 2,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var w1, w2 int
-	for _, a := range alts {
-		switch len(a.Wps) {
-		case 1:
-			w1++
-		case 2:
-			w2++
-		default:
-			t.Fatalf("unexpected arity %d in %v", len(a.Wps), a.Wps)
+	count := func(opts Options) (int, int) {
+		t.Helper()
+		alts, err := Build(&fakeRouter{n: g.N}, ix, IndexHops{IX: ix}, g, inst, fam, opts)
+		if err != nil {
+			t.Fatal(err)
 		}
+		var w1, w2 int
+		for _, a := range alts {
+			switch len(a.Wps) {
+			case 1:
+				w1++
+			case 2:
+				w2++
+			default:
+				t.Fatalf("unexpected arity %d in %v", len(a.Wps), a.Wps)
+			}
+		}
+		return w1, w2
 	}
-	if w1 != 2 || w2 != 2 {
-		t.Fatalf("got %d singletons + %d pairs, want 2 + 2 (a merged cap would give 2 + 0)", w1, w2)
+
+	// Pool is {2,3,5}: three singletons for two slots, plus the one pair.
+	if w1, w2 := count(Options{Mode: ModeResidual, MaxW1: 2, MaxW2: 2}); w1 != 2 || w2 != 1 {
+		t.Fatalf("MaxW1 2 / MaxW2 2: got %d singletons + %d pairs, want 2 + 1", w1, w2)
+	}
+	// Shrinking MaxW1 must not touch the pair list: the pair is not paid for
+	// out of the singleton budget.
+	if w1, w2 := count(Options{Mode: ModeResidual, MaxW1: 1, MaxW2: 2}); w1 != 1 || w2 != 1 {
+		t.Fatalf("MaxW1 1 / MaxW2 2: got %d singletons + %d pairs, want 1 + 1", w1, w2)
 	}
 }
 
@@ -219,10 +234,9 @@ func TestBuildNeverExceedsThePool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// MaxW1/MaxW2 are generous, so everything the pool offers is returned:
-	// 5 ball singletons + 1 off-hot top-up (round(0.05*24)=1), and C(5,2)=10
-	// pairs.  The pair count is unaffected by the top-up: only nodes that
-	// survived the merge are pairing material.
+	// MaxW1 is generous, so every singleton the pool offers is returned: 5 ball
+	// nodes + 1 off-hot top-up (round(0.05*24)=1).  od_scan stocks the singleton
+	// side only, so there are no pairs to return regardless of MaxW2.
 	var w1, w2 int
 	for _, a := range alts {
 		if len(a.Wps) == 1 {
@@ -234,8 +248,8 @@ func TestBuildNeverExceedsThePool(t *testing.T) {
 	if w1 != 6 {
 		t.Fatalf("got %d singletons, want 6 (5 ball nodes + 1 off-hot)", w1)
 	}
-	if w2 != 10 {
-		t.Fatalf("got %d pairs, want 10 (C(5,2))", w2)
+	if w2 != 0 {
+		t.Fatalf("got %d pairs, want 0 (od_scan emits no 2-waypoint candidates)", w2)
 	}
 }
 
@@ -321,10 +335,15 @@ func TestReliefOfTakesBestSlotOnly(t *testing.T) {
 }
 
 func TestModesOf(t *testing.T) {
-	if got := modesOf(ModeMix); len(got) != 3 || got[0] != ModeHotCenter {
-		t.Fatalf("modesOf(mix) = %v, want hot_center first", got)
+	// The mix is the two singleton strategies plus the only pair strategy.
+	// bottleneck is out of it: its crossed pair is the 2-waypoint generation the
+	// mix retired, so including it would put the retired shape back in the pool.
+	got := modesOf(ModeMix)
+	want := []string{ModeHotCenter, ModeODScan, ModeResidual}
+	if !sameStrings(got, want) {
+		t.Fatalf("modesOf(mix) = %v, want %v", got, want)
 	}
-	for _, m := range []string{ModeHotCenter, ModeODScan, ModeBottleneck} {
+	for _, m := range []string{ModeHotCenter, ModeODScan, ModeBottleneck, ModeResidual} {
 		if got := modesOf(m); len(got) != 1 || got[0] != m {
 			t.Fatalf("modesOf(%s) = %v, want exactly itself", m, got)
 		}
@@ -332,6 +351,18 @@ func TestModesOf(t *testing.T) {
 	if got := modesOf(ModeOff); got != nil {
 		t.Fatalf("modesOf(off) = %v, want nil", got)
 	}
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // interleave must round-robin so a capped pool still represents every strategy.
@@ -463,9 +494,14 @@ func TestOffhotSampleShapeAndDeterminism(t *testing.T) {
 	}
 }
 
-// hot_center must build its 2-waypoint material from the nodes that actually
-// offload a hot arc -- one real routing each -- not from the whole ball.
-func TestHotCenterPairsOnlyFromProvenOffloads(t *testing.T) {
+// hot_center is a singleton strategy: it stocks the pool and the pool is all it
+// contributes.  It used to spend one real routing per pooled node proving which
+// of them could serve as pairing material, and pair up the survivors; that
+// filter never removed a node from the pool, so the two halves of this test are
+// the same claim as before -- the pool is the whole ball, and the emitted
+// singletons are exactly the ones that relieve -- with the pair half now
+// asserting the 2-waypoint side is residual's and nobody else's.
+func TestHotCenterEmitsSingletonsOnly(t *testing.T) {
 	inst, g, ix := testGraph(t, 12)
 	rt := &fakeRouter{n: 12}
 	// Only node 2's signature counts as offloading.
@@ -482,8 +518,9 @@ func TestHotCenterPairsOnlyFromProvenOffloads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The pool still holds the whole ball (5 singletons), but only node 2 was
-	// accepted, so it is the only possible pairing material and there is no pair.
+	// The pool still holds the whole ball -- the offload filter never removed a
+	// node from it -- but only node 2 relieves, so it is the only emitted
+	// singleton and MaxW2 caps an empty list.
 	var w1, w2 int
 	for _, a := range alts {
 		if len(a.Wps) == 1 {
@@ -496,13 +533,13 @@ func TestHotCenterPairsOnlyFromProvenOffloads(t *testing.T) {
 		t.Fatalf("got %d singletons, want 1 (only node 2 relieves)", w1)
 	}
 	if w2 != 0 {
-		t.Fatalf("got %d pairs, want 0 (one proven node cannot pair with itself)", w2)
+		t.Fatalf("got %d pairs, want 0 (hot_center must not emit 2-waypoint candidates)", w2)
 	}
 
-	// Widen the relief to two nodes: now exactly one pair must appear.  The test
-	// is "loads these arcs at all", not "loads them fully", because a 2-waypoint
-	// candidate splits its volume across both waypoints' arcs (0.5/0.5 here) --
-	// the real relief closure is a difference of loads and admits that too.
+	// Widen the relief to two nodes: two singletons, still no pair.  The test is
+	// "loads these arcs at all", not "loads them fully", because a 2-waypoint
+	// candidate would split its volume across both waypoints' arcs (0.5/0.5
+	// here) -- the real relief closure is a difference of loads and admits that.
 	rel2 := func(_ int, u []float64) float64 {
 		if u[2] > 0 || u[3] > 0 {
 			return 1.0
@@ -516,20 +553,15 @@ func TestHotCenterPairsOnlyFromProvenOffloads(t *testing.T) {
 		t.Fatal(err)
 	}
 	w1, w2 = 0, 0
-	var pair []int
 	for _, a := range alts {
 		if len(a.Wps) == 1 {
 			w1++
 		} else {
 			w2++
-			pair = a.Wps
 		}
 	}
-	if w1 != 2 || w2 != 1 {
-		t.Fatalf("got %d singletons + %d pairs, want 2 + 1", w1, w2)
-	}
-	if !sameInts(append([]int(nil), pair...), []int{3, 2}) && !sameInts(append([]int(nil), pair...), []int{2, 3}) {
-		t.Fatalf("pair = %v, want the proven nodes {2,3}", pair)
+	if w1 != 2 || w2 != 0 {
+		t.Fatalf("got %d singletons + %d pairs, want 2 + 0", w1, w2)
 	}
 }
 
@@ -667,6 +699,62 @@ func TestGlobalReliefIsAdditive(t *testing.T) {
 	}
 	if !have[wpsKey([]int{4})] {
 		t.Fatalf("net on did not add node 4: got %v", idsOfWps(on))
+	}
+}
+
+// TestGlobalReliefDoesNotDisplacePoolSingletons is the regression test for the
+// setA-04 tail loss.  The net exists to fix the FIRST component; the pool's
+// long detours are what tie the layers after it.  When a net node outranks a
+// pool node by relief and both compete for the same MaxW1 slots, the net
+// silently evicts the pool's tail-oriented candidates -- measured as tie layers
+// 10 -> 1 at an unchanged first bit.  The net therefore gets its own budget.
+func TestGlobalReliefDoesNotDisplacePoolSingletons(t *testing.T) {
+	const n = 12
+	inst, g, ix := testGraph(t, n)
+	// Nodes 1..5 (the ball) relieve 1.0 each; node 9 -- outside the ball, so it
+	// can only come from the net -- outranks them all at 2.0.
+	outranks := func(_ int, u []float64) float64 {
+		s := 2 * u[9]
+		for _, w := range []int{1, 2, 3, 4, 5} {
+			s += u[w]
+		}
+		return s
+	}
+	fam := Family{D: 0, Slots: []int{0}, Hots: map[int][]int{}, Relief: outranks}
+	// PoolCap 6 keeps the whole ball; MaxW1 3 forces the truncation that used to
+	// let the net's higher-relief node evict a pool node.
+	opts := Options{Mode: ModeMix, PoolCap: 6, MaxW1: 3, GlobalK: 2}
+
+	got, err := Build(&fakeRouter{n: n}, ix, fakeHops{n}, g, inst, fam, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var singles []int
+	hasNine := false
+	for _, a := range got {
+		if len(a.Wps) != 1 {
+			continue
+		}
+		singles = append(singles, a.Wps[0])
+		if a.Wps[0] == 9 {
+			hasNine = true
+		}
+	}
+	if !hasNine {
+		t.Fatalf("net node 9 missing from %v", singles)
+	}
+	// The pool's top MaxW1 singletons must survive alongside it, not underneath it.
+	for _, w := range []int{1, 2, 3} {
+		found := false
+		for _, s := range singles {
+			found = found || s == w
+		}
+		if !found {
+			t.Fatalf("net displaced pool singleton %d: singles are %v, want 1,2,3 plus 9", w, singles)
+		}
+	}
+	if len(singles) != 4 {
+		t.Fatalf("got %d singletons %v, want 4 (MaxW1 = 3 pool + 1 net)", len(singles), singles)
 	}
 }
 

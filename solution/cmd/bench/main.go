@@ -25,19 +25,23 @@ func main() {
 	wallSec := flag.Int("wall-sec", 0, "wall-clock cap per instance in seconds (0 = none)")
 	hotK := flag.Int("hot-k", 6, "hot cells per round")
 	peel := flag.Int("peel", 6, "lex peel depth")
-	model := flag.String("model", "twin", "solver pool model: twin or sticky")
 	budgetMode := flag.String("budget-mode", "full", "solver Hamming budget mode: full or first_half")
 	presolve := flag.String("presolve", "unmovable", "solver presolve mode: unmovable or off")
 	presolveSec := flag.Float64("presolve-time", 15, "solver presolve time budget in seconds")
 	presolveDeep := flag.Int("presolve-deep", 100, "solver: max cells examined by the exact (class 3) presolve pass, 0 = uncapped")
 	skipFloor := flag.Bool("skip-floor", true, "solver: do not seed a round on a cell sitting on its presolve floor")
-	candMode := flag.String("cand-mode", "mix", "solver: candidate generator (mix|hot_center|od_scan|bottleneck|off)")
+	candMode := flag.String("cand-mode", "mix", "solver: candidate generator (mix|hot_center|od_scan|bottleneck|residual, or any \"+\"-joined subset; mix = hot_center+od_scan+residual)")
 	candPoolCap := flag.Int("cand-pool-cap", 24, "solver: candidate nodes kept per strategy pool")
 	candW1 := flag.Int("cand-max-w1", 24, "solver: max 1-waypoint candidates per demand per family")
 	candW2 := flag.Int("cand-max-w2", 32, "solver: max 2-waypoint candidates per demand per family")
 	candHopCache := flag.Bool("cand-hop-cache", true, "solver: retain hop BFS per banned-arc set (false = uncached control)")
 	candGlobalK := flag.Int("cand-global-k", 0, "solver: global-relief safety net size (0 = off)")
 	only := flag.String("only", "", "comma-separated instance suffixes to run, e.g. 01,04,19 (default: all 20)")
+	schedule := flag.String("schedule", "hot", "solver: round schedule (hot|pingpong)")
+	focusN := flag.Int("focus-n", 10, "solver: pingpong epoch focus size")
+	growMult := flag.Int("grow-mult", 2, "solver: pingpong scale multiplier per epoch restart")
+	scaleCap := flag.Int("scale-cap", 8, "solver: pingpong search-scale ceiling (1,2,4,...,cap)")
+	confGate := flag.Bool("conf-gate", true, "solver: freeze on accumulated confidence instead of counting every rejection")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dir, 0o755); err != nil {
@@ -79,7 +83,6 @@ func main() {
 			"-rounds", fmt.Sprint(*rounds),
 			"-hot-k", fmt.Sprint(*hotK),
 			"-peel", fmt.Sprint(*peel),
-			"-model", *model,
 			"-budget-mode", *budgetMode,
 			"-presolve", *presolve,
 			"-presolve-time", fmt.Sprintf("%g", *presolveSec),
@@ -93,6 +96,11 @@ func main() {
 			// Bool flags need the "=" form: a bare "-cand-hop-cache false"
 			// parses as true plus a stray positional argument.
 			fmt.Sprintf("-cand-hop-cache=%v", *candHopCache),
+			"-schedule", *schedule,
+			"-focus-n", fmt.Sprint(*focusN),
+			"-grow-mult", fmt.Sprint(*growMult),
+			"-scale-cap", fmt.Sprint(*scaleCap),
+			fmt.Sprintf("-conf-gate=%v", *confGate),
 		}
 		if *wallSec > 0 {
 			args = append(args, "-wall-sec", fmt.Sprint(*wallSec))

@@ -1,0 +1,40 @@
+{
+  "experiment": "2026-09-11_04_local_search_smoke",
+  "date": "2026-09-11",
+  "branch": "SOLUTION",
+  "commit": "c432181",
+  "dirty": true,
+  "dirty_note": "working tree carries the uncommitted internal/local package + the -local-search flags and post-accept hook in solution/cmd/solve/main.go",
+  "kind": "measurement",
+  "not_an_ab": "single instance, single trajectory, 3 runs, < 90s total; explicitly not an optimization A/B (the pass is an independent middleware)",
+  "question": "what does one local-search call actually cost, versus its 3s per-call cap?",
+  "solver_binary": {
+    "solve.exe": "built from this tree (go build -o bin/solve.exe ./cmd/solve), LS on by default"
+  },
+  "flags": {
+    "common": "-monitor=false -wall-sec <30|45> -sprint sprint_results/loads_vector.csv -out /tmp/ls/*.json",
+    "arms": {
+      "a01_on": "-prefix setA/setA-01 (LS defaults)",
+      "a01_off": "-prefix setA/setA-01 -local-search=false",
+      "a11_on": "-prefix setA/setA-11 (LS defaults)"
+    },
+    "ls_defaults": "rounds=3 call_sec=3 budget_frac=0.20 top_cells=20 sat_min=0.01 probes=5"
+  },
+  "later_note": "-local-search was ON by default when these runs were made; it was flipped to OFF later the same day after the setB-01 pair in experiments/2026-09-11_05_setB01_local_search. These numbers stay valid as the cost of the pass, but they no longer describe the default configuration.",
+  "seed": 0,
+  "runs_per_arm": 1,
+  "instances": ["setA-01", "setA-11"],
+  "raw_logs": ["data/a01_ls_on.log", "data/a01_ls_off.log", "data/a11_ls_on.log"],
+  "metric": "per-call wall clock of internal/local, and its share of process elapsed",
+  "not_a_metric": ["total_cost"],
+  "headline": {
+    "setA-01": {"ls_calls": 13, "ls_rounds": 20, "moves": 24, "spent_s": 0.03, "pct_of_elapsed": 0.2, "max_call_s": 0.005, "call_cap_s": 3.0, "budget_frac_s": 6.0},
+    "setA-11": {"ls_calls": 33, "ls_rounds": 38, "moves": 49, "spent_s": 0.69, "pct_of_elapsed": 2.0, "max_call_s": 0.086, "call_cap_s": 3.0, "budget_frac_s": 9.0}
+  },
+  "observations": [
+    "the 3s per-call cap is never approached (3-86ms measured, 1.5-3 orders of magnitude below)",
+    "all triggered moves are tail-layer: first-bit rank unchanged on every 'round N local:' line",
+    "setA-01 LS-on and LS-off reach an identical lexicographic state (tie 1/160, first gap layer 2 = 583674 vs 551952) on both repetitions"
+  ],
+  "caveat": "single reproducible trajectory; no expectation, no gain claim. The global LS budget backstop was never reached, so hitting it is untested here."
+}

@@ -1,0 +1,7 @@
+arm	run	sol	exit	firstbit	accepted	total_cost
+new	b01_new3min	b01_new3min.json	0	531282	22	266
+new	rep1	rep_new_1.json	0	531288	17	188
+new	rep2	rep_new_2.json	0	531288	17	188
+old	b01_old3min	b01_old3min.json	0	531282	21	250
+old	rep1	rep_old_1.json	0	531312	11	225
+old	rep2	-	1	(aborted round 18)	-	-

@@ -1,0 +1,57 @@
+{
+  "experiment": "dual_peel_sweep",
+  "branch": "SOLUTION",
+  "dirty": true,
+  "date": "2026-09-10",
+  "instances": 19,
+  "layers_checked": 74,
+  "invariants": {
+    "L0_live0_iff_z_on_zlb": "19/19",
+    "sumLcap_eq_1_iff_z_interior": "74/74"
+  },
+  "disagreement": {
+    "max_lagging_with_any": "4/5",
+    "max_tied_with_any": "4/14",
+    "fisher_onesided_p": 0.071,
+    "fisher_twosided_p": 0.111
+  },
+  "lp_below_sound_floor": [
+    {
+      "instance": "setA-15",
+      "z": 0.427931,
+      "floor": 0.898696,
+      "ratio": 0.476
+    },
+    {
+      "instance": "setA-17",
+      "z": 0.241072,
+      "floor": 0.424192,
+      "ratio": 0.568
+    },
+    {
+      "instance": "setA-05",
+      "z": 0.132436,
+      "floor": 0.204986,
+      "ratio": 0.646
+    },
+    {
+      "instance": "setA-12",
+      "z": 0.578947,
+      "floor": 0.879873,
+      "ratio": 0.658
+    },
+    {
+      "instance": "setA-09",
+      "z": 0.588311,
+      "floor": 0.84965,
+      "ratio": 0.692
+    },
+    {
+      "instance": "setA-11",
+      "z": 0.613133,
+      "floor": 0.785789,
+      "ratio": 0.78
+    }
+  ],
+  "note": "observation only; -rounds 1 pools are narrower than real-budget pools, so absolute z values are comparable only within this sweep"
+}

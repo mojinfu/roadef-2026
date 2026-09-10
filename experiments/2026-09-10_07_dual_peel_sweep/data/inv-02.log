@@ -1,0 +1,62 @@
+instance=setA-02 m=150 T=2 demands=45
+  start first-bit raw=1.098078198 rank=1098078  total_cost=0
+presolve: 0.01s cells=139 deep=100 floors=16 proven=0 revoked=0 timeout=false
+  lb_sat=0.548578044 (first-bit rank 548578)  proven_pins=0 floors=16
+  pin t=0 arc=90(2->8) load=274.8376 sat=0.548578 src=source-dom proven=false forced_demands=4
+  pin t=0 arc=9(22->4) load=280.6991 sat=0.538770 src=sink-dom proven=false forced_demands=4
+  pin t=0 arc=91(8->2) load=418.7691 sat=0.522808 src=sink-dom proven=false forced_demands=5
+  pin t=1 arc=42(21->7) load=310.6577 sat=0.495467 src=source-dom proven=false forced_demands=1
+  pin t=0 arc=30(15->3) load=283.3041 sat=0.478554 src=source-dom proven=false forced_demands=4
+  ... 11 more pins (see -presolve-pins)
+Set parameter LicenseID to value 2758435
+  dual round 1 [L0free] z=0.624267 (sound floor 0.548578, +0.075689) priced=219 live=2 pairLive=0/11 pairMax=0 sumLcap=1.000000 disagree=1/2 maxPi=0.0015949
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1     40     1.098078     0.624267       344.00     -0.0016 
+        2     1     47     0.048328     0.624267       283.00     -0.0016 
+        3     0      2     0.000000     0.000000       914.00      0.0000 
+        4     0      7     0.277829     0.258955       722.00      0.0000 
+        5     0     10     0.162652     0.162652       977.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  dual round 1 peel: 3 layer(s), sound floor 0.548578
+    L0 zlb=0.548578 z=0.624267 (sound floor 0.548578, +0.075689) priced=219 live=2 pairLive=0/11 pairMax=0 sumLcap=1.000000 disagree=1/2 maxPi=0.0015949
+      locked: (t=0 arc=44 sat=0.624267) (t=0 arc=76 sat=0.624267) (t=1 arc=22 sat=0.624267) (t=1 arc=40 sat=0.624267) +2 more
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     1     40     1.098078     0.624267       344.00     -0.0016 at-z
+        2     1     47     0.048328     0.624267       283.00     -0.0016 at-z
+        3     0      2     0.000000     0.000000       914.00      0.0000 
+        4     0      7     0.277829     0.258955       722.00      0.0000 
+        5     0     10     0.162652     0.162652       977.00      0.0000 
+    L1 zlb=0.000000 z=0.574135 (sound floor 0.548578, +0.025557) priced=219 live=1 pairLive=0/11 pairMax=0 sumLcap=1.000000 disagree=0/1 maxPi=0.00169205
+      locked: (t=0 arc=56 sat=0.574135)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     0     56     0.574135     0.574135       591.00     -0.0017 at-z
+        2     0      2     0.000000     0.000000       914.00      0.0000 
+        3     0      7     0.277829     0.258955       722.00      0.0000 
+        4     0     10     0.162652     0.162652       977.00      0.0000 
+        5     0     11     0.133803     0.133803       881.00      0.0000 
+    L2 zlb=0.000000 z=0.573777 (sound floor 0.548578, +0.025199) priced=219 live=1 pairLive=0/11 pairMax=0 sumLcap=1.000000 disagree=0/1 maxPi=0.00228833
+      locked: (t=0 arc=106 sat=0.573777)
+        #  slot    arc          sat         lsat          cap          Pi note
+        1     0    106     0.573777     0.573777       437.00     -0.0023 at-z
+        2     0      2     0.000000     0.000000       914.00      0.0000 
+        3     0      7     0.277829     0.258955       722.00      0.0000 
+        4     0     10     0.162652     0.162652       977.00      0.0000 
+        5     0     11     0.133803     0.133803       881.00      0.0000 
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+Set parameter LicenseID to value 2758435
+  round 1 ACCEPT: first-bit rank 1098078 -> 903074  total_cost=9 changed=9 hots=6 scale=1
+done: accepted=1 rejected=0  final first-bit raw=0.903074709 rank=903074  total_cost=9 budget_ok=true elapsed=0.3s
+  solves=1 avg pool pairs=11.0 avg cands=1166.0 gurobi=0.22s (63.8% of elapsed)
+  cand mode=mix pool_cap=24 max_w1=24 max_w2=32 global_k=0 hop_cache=true
+  hops queries=276 hits=237 misses=39 computed=39 sets=2
+  schedule=hot focus_n=10 hot_k=6 grow_mult=2 scale_cap=8 conf_gate=false scale=1 epoch_restarts=0
+  freeze: pre=0 soft=0 skip=0 conf_seeds=0
+  first-bit floor rank 548578 vs achieved 903074 (raw floor 0.548578044)
+RESULT setA-02 accepted=1 firstbit=903074 total_cost=9 budget_ok=true
+wrote solution -> C:/Users/xudeyi/AppData/Local/Temp/inv-02.json

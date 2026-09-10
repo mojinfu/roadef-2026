@@ -56,15 +56,18 @@ func main() {
 	arcF := flag.Int("arc", -1, "explicit hot arc (-1 = derive from the snapshot)")
 	demandF := flag.Int("demand", -1, "restrict to one demand id (-1 = every demand that loads a hot arc)")
 
-	mode := flag.String("mode", cand.ModeMix, "candidate generator mode (mix|hot_center|od_scan|bottleneck)")
+	mode := flag.String("mode", cand.ModeMix, "candidate generator mode (mix|hot_center|od_scan|bottleneck|residual, or any \"+\"-joined subset; mix = hot_center+od_scan+residual)")
 	poolCap := flag.Int("pool-cap", 24, "nodes kept per strategy pool")
 	maxW1 := flag.Int("max-w1", 24, "1-waypoint budget per demand per family")
 	maxW2 := flag.Int("max-w2", 32, "2-waypoint budget per demand per family")
 	maxBans := flag.Int("max-bans", 3, "bottleneck: hot arcs banned per demand per slot")
 	maxExtraHop := flag.Int("max-extra-hop", 4, "hop-ball growth limit")
 	offHotPct := flag.Float64("offhot-pct", 0.05, "off-hot random top-up fraction of PoolCap")
-	seed := flag.Int64("seed", 1, "off-hot sample seed")
+	seed := flag.Int64("seed", 0, "off-hot sample seed (0 = the shipping default; solve's -cand-seed is 0 too, so the two agree)")
 	globalK := flag.Int("global-k", 0, "global-relief safety net: append up to K best-relief singletons found by scanning every node (0 = off)")
+	resMinHot := flag.Int("residual-min-hot", 2, "residual: hot arcs the demand's current path must press before the strategy engages")
+	resU := flag.Int("residual-u", 8, "residual: first turning points taken from the A-free shortest-path DAG")
+	resV := flag.Int("residual-v", 8, "residual: second turning points taken per first point from the {A,B}-free residual")
 
 	hopCacheOn := flag.Bool("hop-cache", true, "retain hop BFS per banned-arc set (false = uncached control)")
 
@@ -127,6 +130,10 @@ func main() {
 		OffHotPct:   *offHotPct,
 		Seed:        *seed,
 		GlobalK:     *globalK,
+
+		ResidualMinHot: *resMinHot,
+		ResidualU:      *resU,
+		ResidualV:      *resV,
 	}
 
 	// Arms differ only in whether the hop cache is enabled.  Same families,
@@ -403,12 +410,20 @@ func runArms(sn *snap.Snap, inst *model.Instance, g *graph.Graph, ix *graph.Inde
 			return best
 		}
 
+		arcRelief := func(_ /*slot*/, arc int, unit []float64) float64 {
+			if unit == nil {
+				return -1
+			}
+			return cl[arc] - vol*unit[arc]
+		}
+
 		famStart := time.Now()
 		alts, err := cand.Build(sn, ix, hp, g, inst, cand.Family{
-			D:      f.d,
-			Slots:  []int{f.slot},
-			Hots:   map[int][]int{f.slot: f.target},
-			Relief: relief,
+			D:         f.d,
+			Slots:     []int{f.slot},
+			Hots:      map[int][]int{f.slot: f.target},
+			Relief:    relief,
+			ArcRelief: arcRelief,
 		}, opts)
 		if err != nil {
 			fatal(fmt.Errorf("demand %d slot %d: %w", f.d, f.slot, err))

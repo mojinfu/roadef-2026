@@ -1,0 +1,47 @@
+{
+  "experiment": "2026-09-11_05_setB01_local_search",
+  "date": "2026-09-11",
+  "branch": "SOLUTION",
+  "commit": "c432181",
+  "dirty": true,
+  "dirty_note": "working tree carries the uncommitted internal/local package and the -local-search flags in solution/cmd/solve/main.go; this experiment flipped that flag's default from true to false",
+  "kind": "single-instance arm pair, repeated",
+  "question": "does the post-accept local search pay for itself on setB-01, where its per-call cost is no longer milliseconds?",
+  "solver_binary": {
+    "solve.exe": "built from this tree; arm ON used the then-default -local-search=true, arm OFF passed -local-search=false"
+  },
+  "flags": {
+    "common": "-prefix setB/setB-01 -monitor=false -rounds 400 -wall-sec 180",
+    "arms": {
+      "on": "(no local-search flag: default true at the time of the run)",
+      "off": "-local-search=false"
+    },
+    "ls_defaults": "rounds=3 call_sec=3 budget_frac=0.20 top_cells=20 sat_min=0.01 probes=5"
+  },
+  "seed": 0,
+  "runs_per_arm": 2,
+  "instances": ["setB-01"],
+  "raw_logs": [
+    "data/b01_ls_on.log",
+    "data/b01_ls_on_r2.log",
+    "data/b01_ls_off.log",
+    "data/b01_ls_off_r2.log"
+  ],
+  "yardstick": "cmd/diffsol between the two arms' solution files (no setB row exists in sprint_results/loads_vector.csv)",
+  "headline": {
+    "on": {"accepted": 5, "rounds_completed": 13, "firstbit": 704559, "exit": "killed past stopAt"},
+    "off": {"accepted": 12, "rounds_completed": 22, "firstbit": 531282, "exit": "wall-sec 180 reached"},
+    "diffsol": "OFF wins at layer 1 (531282 vs 704559); full vector OFF-wins 3180 layers, ON-wins 45"
+  },
+  "determinism": "both arms reproduce round for round on the repeat (OFF RESULT line identical in all three fields; ON identical in every ACCEPT/local line, differing only in the LS wall-clock seconds 1.917->1.963 and 1.485->1.647). The 704559 vs 531282 split is therefore not run-to-run noise.",
+  "cost": {
+    "setB-01_ls_call_seconds": [1.485, 1.963],
+    "setA_01_ls_call_seconds": [0.003, 0.086],
+    "driver": "local.tasks runs one UnitRoute per demand per surface slot per round; setB-01 is 6519 demands x 12 slots, so ~0.7-2e4 UnitRoute calls per round"
+  },
+  "decisions_taken": [
+    "flipped -local-search default from true to false in solution/cmd/solve/main.go; the flag itself is kept"
+  ],
+  "hypothesis_unverified": "the split opens exactly where the LS hook calls dropMem() (LS improved the first bit at round 1, so the hook wipes done/seedMem/softFrozen and reschedules). An arm where LS is restricted to tail-only moves would test it; more repetitions would not, since determinism is already established.",
+  "caveat": "one instance, one seed, one wall budget. Both ON runs were terminated (watchdog on run 1, manual on run 2), so no 'local: calls=... spent=...' summary exists and the LS share of the setB-01 wall clock is still unmeasured. Supports the default-off decision, not the stronger claim that LS is harmful on setB."
+}
