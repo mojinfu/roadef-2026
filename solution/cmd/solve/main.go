@@ -44,6 +44,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,10 +89,11 @@ func main() {
 	hotK := flag.Int("hot-k", 6, "number of hot arcs of the focus slot decomposed together")
 	schedule := flag.String("schedule", "hot", "round schedule: hot (legacy: every round attacks the globally hottest cell) or pingpong (design doc §14: hot/early parity, focus-N epoch, scale escalator)")
 	focusN := flag.Int("focus-n", 10, "pingpong: freeze the top-N live cells as the epoch focus; a hot round may only attack one of them (0 = plain pingpong, no epoch, so a retired cell never comes back)")
+	epochTopN := flag.Int("epoch-top-n", 12, "pingpong: end the epoch once the globally hottest N cells are all retired (frozen, skipped or physically pinned), ranked *before* the retired set is subtracted; the first N layers of the load vector are exactly these cells, so an epoch that can no longer move any of them has nothing to aim at. 0 disables the test and leaves the focus-exhaustion rule alone")
 	growMult := flag.Int("grow-mult", 2, "pingpong: scale multiplier applied when an epoch restarts")
 	scaleCap := flag.Int("scale-cap", 8, "pingpong: ceiling on the search scale (the escalator walks 1,2,4,...,cap; 8 is the widest that still fits the memory budget, since a round's candidate columns grow with hot-k times the waypoint caps); an exhausted epoch that cannot grow stops instead of unfreezing")
 	widthStep := flag.Int("width-step", 10, "pingpong: per-scale-step increment of the per-demand candidate budgets -cand-max-w1 and -cand-max-w2 (scale s gives base + step*(s-1), so 24/32 -> 34/42 -> 44/52; 0 = the built-in default). Replaces the old multiplicative law, which compounded with hot-k")
-	confGate := flag.Bool("conf-gate", true, "freeze a seed on accumulated confidence (cover**0.25 per proven-optimal miss, doc §15) rather than counting every rejection the same; false restores the legacy fail-limit rule for a bit-for-bit A/B control")
+	confGate := flag.Bool("conf-gate", true, "freeze a seed on accumulated confidence (cover**2 + 0.1 per proven-optimal miss, so a purely local miss costs 10 rounds and a network-wide one 1, doc §15) rather than counting every rejection the same; false restores the legacy fail-limit rule for a bit-for-bit A/B control")
 	dualProbe := flag.Int("dual-probe", 0, "diagnostic: peel the round's pool as LP relaxations and dump the tracked cells' dual prices (Pi) for the first N rounds, 0 = off. Observation only -- it changes no decision, but it does spend wall-clock time, so a run with it on is not comparable to one without")
 	dualPeel := flag.Int("dual-peel", 3, "diagnostic: how many LP peel layers -dual-probe walks (layer 0 is the floored model the solver's own first layer sees; later layers pin the previous layer's max and free z, which is where the prices are live)")
 	stickySpan := flag.Int("sticky-span", 1, "sticky: copy the seed waypoint at most this many slots forward")
@@ -131,6 +134,8 @@ func main() {
 	localSatMin := flag.Float64("local-search-sat-min", 0.01, "local search: saturation floor of the attack surface; cells at or below it are ignored")
 	localProbes := flag.Int("local-search-probes", 5, "local search: max detour waypoints probed per demand")
 	indexSize := flag.Int("index-size", 0, "graph index LRU capacity (0 = size to the instance: 4*n*T)")
+	atomSize := flag.Int("atom-size", 0, "ECMP atom LRU capacity in entries (0 = size it to 800 MB of atom vectors, i.e. 800MB/(8*m); one entry is m float64s). It must stay bounded: the atom key is (u, v, slot) over arbitrary node pairs, so its key space is n^2*T and an unbounded cache grows without limit over a long run -- the tuning table is in the comment where the default is computed")
+	heapProfile := flag.String("heap-profile", "", "diagnostic: write a pprof heap profile to this path when the search ends (empty = off; the profile is observation only and changes no decision)")
 	flag.Parse()
 	if *prefix == "" {
 		fmt.Fprintln(os.Stderr, "usage: solve -prefix setA/setA-01 [-out sol.json] [-sprint loads_vector.csv]")
@@ -198,7 +203,6 @@ func main() {
 	}
 
 	g := graph.New(inst)
-	cache := ecmp.NewCache(g, inst.Scenario.Blocked, 0)
 	// Size the graph index *before* the first snapshot exists.  The empty
 	// snapshot routes every (demand, slot) pair, i.e. one distance array per
 	// distinct target per slot, and on setB (n*t well past the 2048 default)
@@ -217,6 +221,38 @@ func main() {
 			ixSize = 8192
 		}
 	}
+	// The atom LRU gets its own bound, and it is not optional: its key is
+	// (u, v, t) with u and v *arbitrary* nodes -- UnitRoute asks for a segment
+	// per leg of the route, so the waypoints, not the arcs, decide the pairs --
+	// which makes the key space n^2*T, not m*T, and every accepted round's
+	// rerouteAll re-requests the whole incumbent routing.  Left unbounded (the
+	// old 1<<30) every pair the search ever touches is retained for the whole
+	// run: a 190s setB-01 pingpong run held 1973 MB of splitAtom vectors, 97%
+	// of its live heap, and the growth is linear in rounds, so a 600s run
+	// reaches double digits of GB and dies.
+	//
+	// The bound is set in bytes, not entries, because an entry is m float64s
+	// and m is what varies across instances -- an entry is 6.9 KB on setB-01
+	// (m=864) but 40 KB on setB-11 (m=5036), so a fixed count would grow
+	// exactly where the budget is tightest.  The count that matters is the
+	// incumbent's segment set, which is why the index-sized default
+	// (4*n*T = 12672 on setB-01) thrashed:
+	// measured on setB-01 at a 190s wall, 12672 entries gave a 74% hit rate,
+	// 4.14M evictions and 68 rounds against the unbounded arm's 104, and the
+	// first bit came out one rank worse (531544 vs 531297).  50000 entries
+	// recovered the first bit at 87 rounds, 200000 gave 98% hits and 95 rounds.
+	// The default below sits between them; the ceiling is what keeps a 600s run
+	// alive, and a miss costs a splitAtom over m arcs (plus a Dijkstra only if
+	// the index also evicted), so evicting is cheap next to the alternative.
+	atomCap := *atomSize
+	if atomCap <= 0 {
+		const atomBytesDefault = 800 << 20
+		atomCap = atomBytesDefault / (8 * g.M)
+		if atomCap < 1<<13 {
+			atomCap = 1 << 13
+		}
+	}
+	cache := ecmp.NewCache(g, inst.Scenario.Blocked, atomCap)
 	cache.Index().SetMaxSize(ixSize)
 	sn, err := snap.NewEmpty(inst, g, cache)
 	if err != nil {
@@ -502,13 +538,35 @@ func main() {
 		if len(live) == 0 {
 			break
 		}
+		// The epoch's direct exhaustion test: are the globally hottest
+		// epochTopN cells all retired?  The ranking here is deliberately taken
+		// *before* the retired set is subtracted -- a frozen cell must still
+		// count where it stands, which is the whole point of asking.  A hot
+		// round can only ever attack a live cell, so once these are gone the
+		// first epochTopN layers of the vector are out of reach for the rest of
+		// the epoch and the whole round budget is better spent at a wider
+		// scale.  Physical pins are in done too: they can never move, so they
+		// must not hold an epoch open.
+		topRetired := false
+		if *epochTopN > 0 && sc.Mode() == sched.PingPong {
+			topRetired = true
+			for i, k := range bestSnap.RankKeys(nil) {
+				if i >= *epochTopN {
+					break
+				}
+				if !done[k] {
+					topRetired = false
+					break
+				}
+			}
+		}
 		// The schedule picks this round's cells: the legacy Hot mode hands back
 		// the globally hottest hotK, pingpong alternates hot rounds (the hottest
 		// live epoch_focus member) with early rounds (a cursor sweeping the
 		// slots).  Note the pool is *not* filtered by the focus set -- the focus
 		// only decides which slot a hot round attacks, while the decomposition
 		// inside it still takes the top arcs by saturation (doc §9).
-		dec, ok := sc.Next(live, func(k snap.Key) int { return memOf(k).scale })
+		dec, ok := sc.Next(live, func(k snap.Key) int { return memOf(k).scale }, topRetired)
 		if !ok {
 			fmt.Printf("schedule: epoch exhausted at scale cap after %d rounds\n", r-1)
 			break
@@ -587,36 +645,73 @@ func main() {
 			}
 		}
 
+		// hotsHold reports whether this round's cell set contains k.  It is what
+		// tells an early round that is asking the gate's question anyway (see
+		// retire) from one that is sweeping a slot the top cell has nothing to
+		// do with.
+		hotsHold := func(k snap.Key) bool {
+			for _, h := range hots {
+				if h == k {
+					return true
+				}
+			}
+			return false
+		}
+
+		// confBase is the floor of one proven-optimal miss's confidence: a miss
+		// costs at least this much no matter how narrow the round's search was,
+		// so even a cover of 0 retires a seed in 1/confBase misses.  It is what
+		// keeps the gate from reading a narrow round -- which proves very little
+		// -- as if it proved as much as a wide one.
+		const confBase = 0.1
+
 		// retire books one failed round against every attacked cell.  Which
 		// counter moves depends on what the MIP proved (doc §21): a not-proven
 		// round (timeout or infeasible) is no evidence that the cell is
 		// immovable, so it feeds not_proven and freezes after miss-fail-max; a
 		// proven-optimal round that still could not drop the first bit feeds
-		// the confidence by the round's cover, and freezes the seed once
-		// conf >= 1.  Below that threshold the seed's retry scale is bumped, so
-		// the next round on it searches wider before it can be retired.
+		// the confidence by the round's cover (cover**2 + confBase) and freezes
+		// the seed once conf >= 1.  Below that threshold the seed's retry scale
+		// is bumped, so the next round on it searches wider before it can be
+		// retired.
+		//
+		// An early round feeds the confidence gate only when it happened to
+		// attack the hottest live cell.  It picks its cells off the cursor, not
+		// off the heat, so as a rule the sub-problem it just solved is not the
+		// one the gate is asking about: its optimality says nothing about
+		// whether those cells can be moved out of the vector's top, and a wide
+		// sweep would otherwise hand the tail a confidence the hot rounds never
+		// earned.  When the cursor's slot does hold the hottest live cell the
+		// round is asking exactly the gate's question, so its proof counts like
+		// any hot round's.  Ungated rounds book an ordinary miss instead --
+		// under their own reason, so the histogram keeps telling the two apart.
 		// -conf-gate=false collapses both counters back into the legacy
 		// every-rejection-counts rule.
-		retire := func(proven bool, cover float64) {
+		retire := func(proven bool, cover float64, early bool) {
+			gated := !early || hotsHold(live[0])
 			for _, k := range hots {
 				st := memOf(k)
-				if !*confGate || !proven {
-					st.notProven++
-					why["not-proven"]++
-					if st.notProven >= *failLimit {
+				if *confGate && proven && gated {
+					why["conf"]++
+					st.conf += cover*cover + confBase
+					if st.conf >= 1 {
 						freeze(k)
+						continue
+					}
+					st.scale *= *growMult
+					if st.scale > *scaleCap {
+						st.scale = *scaleCap
 					}
 					continue
 				}
-				why["conf"]++
-				st.conf += math.Pow(cover, 0.25)
-				if st.conf >= 1 {
-					freeze(k)
-					continue
+				st.notProven++
+				if early {
+					why["early-miss"]++
+				} else {
+					why["not-proven"]++
 				}
-				st.scale *= *growMult
-				if st.scale > *scaleCap {
-					st.scale = *scaleCap
+				if st.notProven >= *failLimit {
+					freeze(k)
 				}
 			}
 			rejected++
@@ -716,7 +811,7 @@ func main() {
 		hots = kept
 		if len(hots) == 0 {
 			why["no-seed-hot"]++
-			retire(false, 0)
+			retire(false, 0, dec.Early)
 			continue
 		}
 		hc := make([]mip.HotCell, len(hots))
@@ -764,16 +859,17 @@ func main() {
 		}
 		if len(pool.Pairs) == 0 {
 			why["no-pool"]++
-			retire(false, 0)
+			retire(false, 0, dec.Early)
 			continue
 		}
 		// How broad this round's candidate columns are, as a fraction of the
 		// network's arcs (doc §15).  It is the weight of a proven-optimal miss:
 		// a wide search that still failed is far stronger evidence than a narrow
 		// one, so it is measured here, once, rather than per reject path.  Only
-		// the confidence gate reads it, so it is not paid for without it.
+		// the confidence gate reads it, so it is not paid for without it -- nor
+		// for a round whose miss the gate will not read at all.
 		cover := 0.0
-		if *confGate {
+		if *confGate && (!dec.Early || hotsHold(live[0])) {
 			cover = pool.Cover()
 		}
 
@@ -860,7 +956,7 @@ func main() {
 			if debug(0) {
 				fmt.Printf("    reject: mip status=%d no solution\n", res.Status)
 			}
-			retire(res.Proven(), cover)
+			retire(res.Proven(), cover, dec.Early)
 			continue
 		}
 
@@ -878,7 +974,7 @@ func main() {
 		}
 		if changed == 0 {
 			why["no-change"]++
-			retire(res.Proven(), cover)
+			retire(res.Proven(), cover, dec.Early)
 			continue
 		}
 
@@ -890,7 +986,7 @@ func main() {
 		if !trialSnap.BudgetOK() {
 			// MIP rows should have enforced budgets; guard anyway.
 			why["budget"]++
-			retire(res.Proven(), cover)
+			retire(res.Proven(), cover, dec.Early)
 			continue
 		}
 		if eval.LexCompare(trialDesc, bestDesc) >= 0 {
@@ -898,7 +994,7 @@ func main() {
 			if debug(0) {
 				fmt.Printf("    reject: changed=%d but not lex better (mip obj=%.6f)\n", changed, res.ObjVal)
 			}
-			retire(res.Proven(), cover)
+			retire(res.Proven(), cover, dec.Early)
 			continue
 		}
 
@@ -1019,6 +1115,32 @@ func main() {
 	}
 	fmt.Printf("  freeze: pre=%d soft=%d skip=%d conf_seeds=%d\n",
 		len(preFrozen), len(softFrozen), len(skipEpoch), len(seedMem))
+	// The atom LRU's numbers are what say whether -atom-size is set sensibly:
+	// a high eviction count against a low hit rate is thrash, and thrash costs
+	// a splitAtom (and often a fresh Dijkstra behind it) per miss.
+	fmt.Printf("  atoms cap=%d hits=%d misses=%d evicted=%d\n",
+		atomCap, cache.Hits, cache.Misses, cache.Evicted)
+
+	if *heapProfile != "" {
+		// A live heap of this size at this point in the run is the number the
+		// memory diagnosis reads: it is taken after the last round, so the
+		// per-round garbage is finalised and what remains is what the loop
+		// retains.
+		runtime.GC()
+		var ms runtime.MemStats
+		runtime.ReadMemStats(&ms)
+		fmt.Printf("  heap live=%d MB (heap_inuse=%d MB sys=%d MB)\n",
+			ms.HeapAlloc>>20, ms.HeapInuse>>20, ms.Sys>>20)
+		if f, err := os.Create(*heapProfile); err == nil {
+			if err := pprof.WriteHeapProfile(f); err != nil {
+				fmt.Fprintf(os.Stderr, "heap profile write %s: %v\n", *heapProfile, err)
+			}
+			f.Close()
+			fmt.Printf("  heap profile -> %s\n", *heapProfile)
+		} else {
+			fmt.Fprintf(os.Stderr, "heap profile create %s: %v\n", *heapProfile, err)
+		}
+	}
 
 	fin := bestSnap.Solution()
 	// The first bit can never go below the structural floor, so a solution whose

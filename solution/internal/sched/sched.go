@@ -214,9 +214,23 @@ func (s *Scheduler) Widths(scale int) (hotK, maxW1, maxW2 int) {
 // seedScale reports a seed's retry scale (doc §15: the round runs at
 // max(search_scale, the seed's retry scale)); it may be nil.
 //
+// topRetired is the caller's exhaustion test, and it is the one that fires in
+// practice.  The focus test alone is weak: the fixed focus list only tracks the
+// cells that were hot when the epoch opened, and every accept clears the
+// retired flag of the cells it moved, so a focus that keeps yielding small
+// moves is never exhausted and the epoch never turns over -- the scale
+// escalator, which is the whole point of an epoch, never fires.  topRetired
+// asks the direct question instead: the caller ranks the cells *before*
+// subtracting the retired set, so a frozen cell still stands where it stands,
+// and reports whether the hottest n of them are all retired.  The load vector
+// is ordered by that same ranking, so once every cell that could still move its
+// first n layers is gone the epoch has nothing left to aim at.  Physical pins
+// count as retired: they can never move, so letting one hold an epoch open is
+// exactly the mistake this test exists to avoid.
+//
 // ok == false means the search is over: the epoch is exhausted and the scale
 // cannot grow past scale-cap.
-func (s *Scheduler) Next(ranked []snap.Key, seedScale func(snap.Key) int) (Decision, bool) {
+func (s *Scheduler) Next(ranked []snap.Key, seedScale func(snap.Key) int, topRetired bool) (Decision, bool) {
 	var d Decision
 	if len(ranked) == 0 {
 		return d, false
@@ -236,12 +250,13 @@ func (s *Scheduler) Next(ranked []snap.Key, seedScale func(snap.Key) int) (Decis
 		return d, true
 	}
 
-	// Epoch transition.  An exhausted focus restarts at a higher scale while
+	// Epoch transition.  An exhausted epoch restarts at a higher scale while
 	// that still fits under the cap; with the cap reached the search stops
 	// without lifting anything -- never unfreeze to attack the N+1th peak
-	// (doc §21).  A focus is exhausted when none of its members is live: they
-	// were all soft-frozen or skipped, or dropped to zero load.
-	for s.opts.FocusN > 0 && s.hasFocus && len(s.liveFocus(ranked)) == 0 {
+	// (doc §21).  It is exhausted when every focus member has left the live
+	// list (soft-frozen, skipped, or dropped to zero load) or when the caller
+	// reports the top of the vector is retired outright.
+	for s.opts.FocusN > 0 && s.hasFocus && (topRetired || len(s.liveFocus(ranked)) == 0) {
 		if s.scale*s.opts.GrowMult > s.opts.ScaleCap {
 			return d, false
 		}

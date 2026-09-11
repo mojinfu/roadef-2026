@@ -41,6 +41,13 @@ type Cache struct {
 
 	memo map[uvt]*list.Element
 	lru  *list.List
+
+	// Counters, for reporting only: they never feed a decision.  Hits/Misses
+	// count atom lookups and Evicted counts entries the LRU dropped, which is
+	// what says whether a bound is thrashing rather than merely working.
+	Hits    int
+	Misses  int
+	Evicted int
 }
 
 type uvt struct{ u, v, t int }
@@ -51,8 +58,15 @@ type cacheEntry struct {
 }
 
 // NewCache builds a cache keyed on the scenario's per-slot down-arc sets.
-// maxSize <= 0 means unlimited.  The attached graph.Index is bounded
-// internally (LRU), independently of the atom memo.
+// maxSize <= 0 means effectively unlimited (1<<30), which is fine for the
+// one-shot tools but NOT for the round loop: the key is (u, v, t) over
+// *arbitrary* node pairs -- UnitRoute asks for one segment per leg of a route,
+// so waypoints, not arcs, decide the pairs -- and every accepted round re-routes
+// the whole incumbent, so the key space is n^2*T and a long run retains every
+// pair it ever touched.  cmd/solve sizes this bound; a caller that loops must
+// do the same (see the atomCap block there for the measured sizes).
+// The attached graph.Index is bounded internally (LRU), independently of the
+// atom memo.
 func NewCache(g *graph.Graph, blocked [][]bool, maxSize int) *Cache {
 	if maxSize <= 0 {
 		maxSize = 1 << 30
@@ -84,9 +98,11 @@ func (c *Cache) Atom(u, v, t int) []float64 {
 	}
 	key := uvt{u, v, t}
 	if el, ok := c.memo[key]; ok {
+		c.Hits++
 		c.lru.MoveToFront(el)
 		return el.Value.(*cacheEntry).vals
 	}
+	c.Misses++
 	vals := c.atom(u, v, t)
 	ent := &cacheEntry{key: key, vals: vals}
 	c.memo[key] = c.lru.PushFront(ent)
@@ -95,6 +111,7 @@ func (c *Cache) Atom(u, v, t int) []float64 {
 		if back != nil {
 			c.lru.Remove(back)
 			delete(c.memo, back.Value.(*cacheEntry).key)
+			c.Evicted++
 		}
 	}
 	return vals

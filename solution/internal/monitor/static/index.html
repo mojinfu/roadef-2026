@@ -122,7 +122,7 @@ footer{color:var(--faint);font-size:11px;padding:2px 16px 14px}
     <span><i class="sw bar"></i>弧饱和 sat = load/cap（柱顶数值）</span>
     <span><i class="sw hot"></i>红圈 = 当前正在求解的热弧</span>
     <span><i class="sw frozen"></i>灰斜纹 = 已冻结（打不动，标记 done）</span>
-    <span><i class="sw conf"></i>琥珀帽 = 冻结置信度 conf（失败次数/fail-limit）</span>
+    <span><i class="sw conf"></i>琥珀帽 = 冻结置信度 conf（每次「MIP 证明最优却没改进」加 cover²+0.1，攒到 1 冻结）</span>
     <span><i class="sw focus"></i>绿色 focus = 当前焦点时段 t</span>
     <span>温度 = 当前 max 饱和（随求解下降，近似退火温度）</span>
   </div>
@@ -213,7 +213,7 @@ function slotsHTML(st){
       const lblCls = c.frozen ? "albl frozen" : "albl";
       const confPct = (c.conf>0 && c.conf<1 && !c.frozen) ? (c.conf*100).toFixed(0) : null;
       const capHtml = confPct!==null
-        ? `<div class="cap" style="height:${confPct}%" title="冻结置信度 conf = ${c.conf.toFixed(2)}（失败 ${c.attempted?"≥1":0} 次 / fail-limit ${st.fail_limit}）"></div>`
+        ? `<div class="cap" style="height:${confPct}%" title="冻结置信度 conf = ${c.conf.toFixed(2)} / 1.00（每轮「证明最优却没改进」按 cover²+0.1 累加，未进闸门的 early 轮只记不进）"></div>`
         : "";
       const cls = ["fill"];
       if(c.frozen) cls.push("frozen"); else if(c.hot) cls.push("hot");

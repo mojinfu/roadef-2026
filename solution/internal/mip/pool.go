@@ -73,7 +73,7 @@ type Pool struct {
 // Cover is the fraction of the network's arcs that at least one candidate
 // column of this pool traverses: distinct arcs used / total arcs (design doc
 // §15).  It is how broad the round's search was, and the caller turns it into
-// the confidence increment miss_delta = cover**0.25 for a round the MIP proved
+// the confidence increment miss_delta = cover**2 + 0.1 for a round the MIP proved
 // optimal but that still could not drop the first bit: a wide search that
 // failed is much stronger evidence that the seed is immovable than a narrow
 // one.  The panel of "no move" columns contributes nothing -- Move is false on

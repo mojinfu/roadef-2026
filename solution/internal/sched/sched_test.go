@@ -49,7 +49,7 @@ func TestParseMode(t *testing.T) {
 func TestHotModeIsLegacyShape(t *testing.T) {
 	s := New(Options{Mode: Hot, T: 2, FocusN: 10, HotK: 2, GrowMult: 2, ScaleCap: 16, MaxW1: 24, MaxW2: 32})
 	for r := 1; r <= 4; r++ {
-		d, ok := s.Next(ranked([2]int{0, 5}, [2]int{1, 7}, [2]int{0, 3}), nil)
+		d, ok := s.Next(ranked([2]int{0, 5}, [2]int{1, 7}, [2]int{0, 3}), nil, false)
 		if !ok {
 			t.Fatalf("round %d: unexpectedly stopped", r)
 		}
@@ -78,7 +78,7 @@ func TestPingPongParityAndEarlyCursor(t *testing.T) {
 	live := ranked([2]int{0, 5}, [2]int{1, 7})
 	var earlySlots []int
 	for r := 1; r <= 6; r++ {
-		d, ok := s.Next(live, nil)
+		d, ok := s.Next(live, nil, false)
 		if !ok {
 			t.Fatalf("round %d: unexpectedly stopped", r)
 		}
@@ -112,19 +112,19 @@ func TestEarlyCursorSkipsDeadSlots(t *testing.T) {
 	s := New(Options{Mode: PingPong, T: 4, HotK: 1, GrowMult: 2, ScaleCap: 16})
 	// Slots 1 and 3 carry no live cell at all.
 	live := ranked([2]int{0, 5}, [2]int{2, 7})
-	d, ok := s.Next(live, nil) // hot
+	d, ok := s.Next(live, nil, false) // hot
 	if !ok || d.Early {
 		t.Fatalf("round 1: want a hot round, got early=%v ok=%v", d.Early, ok)
 	}
-	d, ok = s.Next(live, nil) // early, cursor 0
+	d, ok = s.Next(live, nil, false) // early, cursor 0
 	if !ok || !d.Early || d.Hots[0].T != 0 {
 		t.Fatalf("round 2: early anchor=%d ok=%v, want slot 0", d.Hots[0].T, ok)
 	}
-	d, ok = s.Next(live, nil) // hot
+	d, ok = s.Next(live, nil, false) // hot
 	if !ok || d.Early {
 		t.Fatalf("round 3: want a hot round, got early=%v ok=%v", d.Early, ok)
 	}
-	d, ok = s.Next(live, nil) // early, cursor 1 is dead -> skip to 2
+	d, ok = s.Next(live, nil, false) // early, cursor 1 is dead -> skip to 2
 	if !ok || !d.Early || d.Hots[0].T != 2 {
 		t.Fatalf("round 4: early anchor=%d ok=%v, want slot 2", d.Hots[0].T, ok)
 	}
@@ -137,7 +137,7 @@ func TestHotRoundStaysInsideFocus(t *testing.T) {
 	// The focus is the top-2 at epoch start: slot 0 only.  The later slot-1
 	// cell is hotter than nothing but is not a focus member, so a hot round
 	// must not attack it.
-	d, ok := s.Next(ranked([2]int{0, 5}, [2]int{0, 6}, [2]int{1, 7}), nil)
+	d, ok := s.Next(ranked([2]int{0, 5}, [2]int{0, 6}, [2]int{1, 7}), nil, false)
 	if !ok || !d.Restart {
 		t.Fatalf("round 1: want the epoch to open (restart), got %+v ok=%v", d, ok)
 	}
@@ -154,7 +154,7 @@ func TestEpochExhaustionRestartsAtHigherScale(t *testing.T) {
 	b := snap.Key{T: 1, A: 7}
 	c := snap.Key{T: 0, A: 3}
 
-	d, ok := s.Next([]snap.Key{a, b, c}, nil)
+	d, ok := s.Next([]snap.Key{a, b, c}, nil, false)
 	if !ok || !d.Restart || d.Scale != 1 {
 		t.Fatalf("round 1: want epoch 1 at scale 1, got %+v ok=%v", d, ok)
 	}
@@ -162,7 +162,7 @@ func TestEpochExhaustionRestartsAtHigherScale(t *testing.T) {
 		t.Fatalf("focus should hold {a} only: a=%v b=%v", s.InFocus(a), s.InFocus(b))
 	}
 	// a is retired; the epoch is now exhausted.
-	d, ok = s.Next([]snap.Key{b, c}, nil)
+	d, ok = s.Next([]snap.Key{b, c}, nil, false)
 	if !ok {
 		t.Fatal("round 2: the epoch should restart, not stop")
 	}
@@ -174,8 +174,34 @@ func TestEpochExhaustionRestartsAtHigherScale(t *testing.T) {
 	}
 	// b is retired too; the scale is at the cap, so the search stops without
 	// lifting anything (doc §21: scale to cap means stop).
-	if _, ok := s.Next([]snap.Key{c}, nil); ok {
+	if _, ok := s.Next([]snap.Key{c}, nil, false); ok {
 		t.Fatal("round 3: an exhausted epoch at the scale cap must stop the search")
+	}
+}
+
+// The caller's top-retired report opens a new epoch even though every focus
+// member is still live, and it stops the search at the scale cap exactly as the
+// focus test does.
+func TestTopRetiredEndsTheEpoch(t *testing.T) {
+	s := New(Options{Mode: PingPong, T: 2, FocusN: 2, HotK: 1, GrowMult: 2, ScaleCap: 2})
+	live := ranked([2]int{0, 5}, [2]int{1, 7})
+
+	d, ok := s.Next(live, nil, false)
+	if !ok || !d.Restart || d.Scale != 1 {
+		t.Fatalf("round 1: want epoch 1 at scale 1, got %+v ok=%v", d, ok)
+	}
+	// Both focus members are still live, so the focus test says the epoch goes
+	// on.  The caller overrules it: nothing in the vector's top can move.
+	d, ok = s.Next(live, nil, true)
+	if !ok {
+		t.Fatal("round 2: the top-retired report should restart the epoch, not stop the search")
+	}
+	if !d.Restart || d.Scale != 2 {
+		t.Fatalf("round 2: want a restart at scale 2, got restart=%v scale=%d", d.Restart, d.Scale)
+	}
+	// Scale is at the cap now, so a second top-retired report ends the search.
+	if _, ok := s.Next(live, nil, true); ok {
+		t.Fatal("round 3: top retired at the scale cap must stop the search")
 	}
 }
 
@@ -184,14 +210,14 @@ func TestRescheduleRebuildsFocus(t *testing.T) {
 	s := New(Options{Mode: PingPong, T: 2, FocusN: 1, HotK: 1, GrowMult: 2, ScaleCap: 16})
 	a := snap.Key{T: 0, A: 5}
 	b := snap.Key{T: 1, A: 7}
-	if d, ok := s.Next([]snap.Key{a, b}, nil); !ok || !s.InFocus(a) {
+	if d, ok := s.Next([]snap.Key{a, b}, nil, false); !ok || !s.InFocus(a) {
 		t.Fatalf("round 1: want focus {a}, got %+v", d)
 	}
 	s.Reschedule()
 	if s.InFocus(a) {
 		t.Fatal("Reschedule must drop the old focus")
 	}
-	d, ok := s.Next([]snap.Key{b}, nil)
+	d, ok := s.Next([]snap.Key{b}, nil, false)
 	if !ok || !s.InFocus(b) {
 		t.Fatalf("round 2: want a fresh focus {b}, got %+v ok=%v", d, ok)
 	}
@@ -211,7 +237,7 @@ func TestSeedRetryScaleWidensTheRound(t *testing.T) {
 		}
 		return 1
 	}
-	d, ok := s.Next(live, seedScale)
+	d, ok := s.Next(live, seedScale, false)
 	if !ok {
 		t.Fatal("round 1 stopped unexpectedly")
 	}
@@ -222,7 +248,7 @@ func TestSeedRetryScaleWidensTheRound(t *testing.T) {
 			d.Scale, d.HotK, d.MaxW1, d.MaxW2)
 	}
 	// The other seed has no retry bump: the base geometry.
-	d, ok = s.Next(live, func(snap.Key) int { return 1 })
+	d, ok = s.Next(live, func(snap.Key) int { return 1 }, false)
 	if !ok {
 		t.Fatal("round 2 stopped unexpectedly")
 	}

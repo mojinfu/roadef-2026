@@ -39,6 +39,7 @@ func main() {
 	only := flag.String("only", "", "comma-separated instance suffixes to run, e.g. 01,04,19 (default: all 20)")
 	schedule := flag.String("schedule", "hot", "solver: round schedule (hot|pingpong)")
 	focusN := flag.Int("focus-n", 10, "solver: pingpong epoch focus size")
+	epochTopN := flag.Int("epoch-top-n", 12, "solver: pingpong end-of-epoch test on the top-N hottest cells (0 = off)")
 	growMult := flag.Int("grow-mult", 2, "solver: pingpong scale multiplier per epoch restart")
 	scaleCap := flag.Int("scale-cap", 8, "solver: pingpong search-scale ceiling (1,2,4,...,cap)")
 	confGate := flag.Bool("conf-gate", true, "solver: freeze on accumulated confidence instead of counting every rejection")
@@ -98,6 +99,7 @@ func main() {
 			fmt.Sprintf("-cand-hop-cache=%v", *candHopCache),
 			"-schedule", *schedule,
 			"-focus-n", fmt.Sprint(*focusN),
+			"-epoch-top-n", fmt.Sprint(*epochTopN),
 			"-grow-mult", fmt.Sprint(*growMult),
 			"-scale-cap", fmt.Sprint(*scaleCap),
 			fmt.Sprintf("-conf-gate=%v", *confGate),
