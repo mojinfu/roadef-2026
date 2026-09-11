@@ -29,3 +29,6 @@ runs_v2/
 
 # Tool caches
 .impeccable/
+
+# git-bash crash dumps (written to cwd when a shell dies)
+*.stackdump
